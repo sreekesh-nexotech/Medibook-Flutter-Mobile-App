@@ -68,12 +68,12 @@ class _MedibookSheet extends StatelessWidget {
                 color: AppColors.textStrong,
               ),
             ),
-            SizedBox(height: 10.h),
+            SizedBox(height: 8.h),
             Text(
               message,
               textAlign: TextAlign.center,
               style: AppText.poppins(
-                size: AppFontSize.sm,
+                size: AppFontSize.base,
                 height: 1.5,
                 color: AppColors.textMuted,
               ),

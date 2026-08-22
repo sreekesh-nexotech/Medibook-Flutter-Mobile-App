@@ -107,9 +107,10 @@ final appointmentsControllerProvider =
       (ref) => AppointmentsController(),
     );
 
-/// Appointments in the given bucket (Upcoming / Past).
+/// Appointments in the given bucket (Upcoming / Past). autoDispose family so no
+/// per-key cache lingers once a screen stops watching it.
 final appointmentsByBucketProvider =
-    Provider.family<List<Appointment>, AppointmentBucket>((ref, bucket) {
+    Provider.autoDispose.family<List<Appointment>, AppointmentBucket>((ref, bucket) {
       final items = ref.watch(
         appointmentsControllerProvider.select((s) => s.items),
       );
@@ -124,8 +125,10 @@ final firstUpcomingAppointmentProvider = Provider<Appointment?>((ref) {
   return upcoming.isEmpty ? null : upcoming.first;
 });
 
-/// A single appointment by id (detail / reschedule).
-final appointmentByIdProvider = Provider.family<Appointment?, String>((ref, id) {
+/// A single appointment by id (detail / reschedule). autoDispose family — the id
+/// space is unbounded (new bookings mint b26, b27, …), so keyed caches must not
+/// outlive their watchers.
+final appointmentByIdProvider = Provider.autoDispose.family<Appointment?, String>((ref, id) {
   ref.watch(appointmentsControllerProvider.select((s) => s.items));
   return ref.read(appointmentsControllerProvider.notifier).byId(id);
 });

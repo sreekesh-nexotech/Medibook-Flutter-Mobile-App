@@ -31,14 +31,12 @@ dependencies:
   # Remote/asset image handling (doctor & clinic photography)
   cached_network_image: ^3.4.1
 
-  # Home promo banner carousel
-  carousel_slider: ^5.0.0
-
-  # Skeleton loaders (cache/loading states, ready for the API session)
-  shimmer: ^3.0.0
-
   # Declarative routing + bottom-nav shell
   go_router: ^14.6.2
+
+  # NOTE: carousel_slider and shimmer (from Technical_stack.md) are intentionally
+  # omitted for now — the promo banner uses a plain PageView, and there are no
+  # async loads to skeleton yet. Re-add them with the data/loading layer.
 
   # Date/number formatting
   intl: ^0.20.2

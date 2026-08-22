@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../app/theme/colors.dart';
+import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_icon.dart';
@@ -88,7 +89,7 @@ class HomeHeader extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: 18.w),
               decoration: BoxDecoration(
                 color: AppColors.surface,
-                borderRadius: BorderRadius.circular(999.r),
+                borderRadius: AppRadii.pill,
               ),
               child: Row(
                 children: [

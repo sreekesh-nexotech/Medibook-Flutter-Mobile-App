@@ -148,7 +148,8 @@ class _CheckPainter extends CustomPainter {
   bool shouldRepaint(_CheckPainter oldDelegate) => false;
 }
 
-/// Success-screen enter: a plain fade over [AppConstants.fadeIn] (no rise).
+/// Success-screen enter: a plain fade over [AppConstants.successFadeIn] (0.25s,
+/// slightly slower than the standard fade, per the design).
 class _FadeEnter extends StatelessWidget {
   const _FadeEnter({required this.child});
 
@@ -158,7 +159,7 @@ class _FadeEnter extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: AppConstants.fadeIn,
+      duration: AppConstants.successFadeIn,
       curve: Curves.easeOut,
       builder: (context, t, child) =>
           Opacity(opacity: t.clamp(0.0, 1.0), child: child),

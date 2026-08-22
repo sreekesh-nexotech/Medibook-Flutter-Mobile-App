@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
+import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/mock_data/models/department.dart';
 import '../../../../core/mock_data/models/doctor.dart';
@@ -101,7 +102,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              AppInnerHeader(title: 'Search', onBack: _goBack),
+              AppInnerHeader(title: 'Search', onBack: _goBack, bottomGap: 10),
               Padding(
                 padding: EdgeInsets.fromLTRB(20.w, 4.h, 20.w, 14.h),
                 child: _SearchField(
@@ -158,7 +159,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         height: 40.r,
         decoration: BoxDecoration(
           color: AppColors.surfaceTint,
-          borderRadius: BorderRadius.circular(12.r),
+          borderRadius: AppRadii.md,
         ),
         child: Center(
           child: AppIcon(dept.iconName, size: 22, color: AppColors.brand),
@@ -203,7 +204,7 @@ class _SearchField extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border.all(color: AppColors.border, width: 1.w),
-        borderRadius: BorderRadius.circular(999.r),
+        borderRadius: AppRadii.pill,
       ),
       child: Row(
         children: [

@@ -65,6 +65,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
               AppInnerHeader(
                 title: 'Reset Password',
                 onBack: () => context.go(AppRoutes.login),
+                bottomGap: 8,
               ),
               Expanded(
                 child: SingleChildScrollView(

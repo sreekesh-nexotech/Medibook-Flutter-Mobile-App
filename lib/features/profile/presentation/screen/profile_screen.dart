@@ -7,7 +7,6 @@ import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/medibook_seed.dart';
 import '../../../../core/mock_data/seed_providers.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_bottom_sheet.dart';
@@ -47,12 +46,14 @@ class ProfileScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const AppTabHeader(title: 'Profile'),
+              AppTabHeader(title: 'Profile'),
               Expanded(
                 child: ListView(
                   padding: EdgeInsets.fromLTRB(20.w, 4.h, 20.w, 24.h),
                   children: [
                     _IdentityCard(
+                      name: ref.watch(userNameProvider),
+                      email: ref.watch(userEmailProvider),
                       onEdit: () => _showEditStub(ref),
                     ),
                     SizedBox(height: 16.h),
@@ -121,8 +122,10 @@ class ProfileScreen extends ConsumerWidget {
 
 /// Avatar + name + email, with an Edit icon button.
 class _IdentityCard extends StatelessWidget {
-  const _IdentityCard({required this.onEdit});
+  const _IdentityCard({required this.name, required this.email, required this.onEdit});
 
+  final String name;
+  final String email;
   final VoidCallback onEdit;
 
   @override
@@ -132,7 +135,7 @@ class _IdentityCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const AppAvatar(name: MedibookSeed.userName, size: 56),
+          AppAvatar(name: name, size: 56),
           SizedBox(width: 14.w),
           Expanded(
             child: Column(
@@ -140,7 +143,7 @@ class _IdentityCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  MedibookSeed.userName,
+                  name,
                   style: AppText.poppins(
                     size: 17,
                     weight: AppText.bold,
@@ -148,7 +151,7 @@ class _IdentityCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  MedibookSeed.userEmail,
+                  email,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.poppins(

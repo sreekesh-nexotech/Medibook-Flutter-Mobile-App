@@ -55,3 +55,9 @@ final promoBannersProvider = Provider<List<PromoBanner>>(
 final profileInfoProvider = Provider<List<({String key, String value})>>(
   (ref) => MedibookSeed.profileInfo,
 );
+
+/// Current user's display name (Profile identity).
+final userNameProvider = Provider<String>((ref) => MedibookSeed.userName);
+
+/// Current user's email (Profile identity).
+final userEmailProvider = Provider<String>((ref) => MedibookSeed.userEmail);

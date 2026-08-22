@@ -21,7 +21,13 @@ class AppStepper extends StatelessWidget {
     for (var n = 1; n <= steps; n++) {
       children.add(_circle(n));
       if (n < steps) {
-        children.add(Expanded(child: _connector(n)));
+        // 6px gap on each side of the connector (DS Stepper root `gap: 6`).
+        children.add(Expanded(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 6.w),
+            child: _connector(n),
+          ),
+        ));
       }
     }
     return Row(children: children);

@@ -93,6 +93,7 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
               AppInnerHeader(
                 title: 'Verify Code',
                 onBack: () => context.go(AppRoutes.forgot),
+                bottomGap: 8,
               ),
               Expanded(
                 child: SingleChildScrollView(

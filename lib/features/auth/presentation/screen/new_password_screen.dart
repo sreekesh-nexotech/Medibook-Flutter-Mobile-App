@@ -55,6 +55,7 @@ class _NewPasswordScreenState extends ConsumerState<NewPasswordScreen> {
               AppInnerHeader(
                 title: 'New Password',
                 onBack: () => context.go(AppRoutes.verify),
+                bottomGap: 8,
               ),
               Expanded(
                 child: SingleChildScrollView(
