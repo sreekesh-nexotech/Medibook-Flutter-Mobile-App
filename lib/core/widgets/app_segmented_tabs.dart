@@ -22,7 +22,11 @@ class AppSegmentedTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    // Pills hug their content and sit at the LEFT gutter (design), regardless
+    // of the parent Column's cross-axis alignment.
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
@@ -35,6 +39,7 @@ class AppSegmentedTabs extends StatelessWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

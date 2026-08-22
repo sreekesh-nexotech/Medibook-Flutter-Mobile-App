@@ -68,6 +68,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                 title: 'Create Account',
                 onBack: () => context.go(AppRoutes.login),
                 bottomGap: 8,
+                background: AppColors.surface,
               ),
               Expanded(
                 child: SingleChildScrollView(

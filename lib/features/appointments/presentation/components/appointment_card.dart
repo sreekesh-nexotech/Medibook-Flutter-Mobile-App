@@ -61,7 +61,9 @@ class AppointmentCard extends StatelessWidget {
                     SizedBox(height: 1.h),
                     Text(
                       '${doctor.spec} · $patientFirst',
-                      maxLines: 1,
+                      // The prototype lets this wrap (2 lines for the longest
+                      // spec) rather than ellipsize.
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.poppins(
                         size: 12,

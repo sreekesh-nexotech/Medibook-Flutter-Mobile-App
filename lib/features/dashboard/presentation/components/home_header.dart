@@ -30,8 +30,11 @@ class HomeHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firstName = name.split(' ').first;
+    // The navy block owns the status zone: OS inset + the design's 14px
+    // (design 58 = 44 status + 14 content).
+    final topInset = MediaQuery.paddingOf(context).top;
     return Container(
-      padding: EdgeInsets.fromLTRB(20.w, 14.h, 20.w, 22.h),
+      padding: EdgeInsets.fromLTRB(20.w, topInset + 14.h, 20.w, 22.h),
       decoration: BoxDecoration(
         color: AppColors.brand,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(26.r)),

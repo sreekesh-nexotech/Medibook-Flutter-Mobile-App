@@ -18,6 +18,7 @@ class AppInnerHeader extends StatelessWidget {
     this.onBack,
     this.trailing,
     this.bottomGap = 14,
+    this.background,
   });
 
   final String title;
@@ -32,10 +33,14 @@ class AppInnerHeader extends StatelessWidget {
   /// Forgot / Verify / New Password, 10 on Search, 14 elsewhere.
   final double bottomGap;
 
+  /// Header band color. Defaults to `bgApp`; the all-white auth sub-screens
+  /// pass `AppColors.surface` (their whole page is surface in the design).
+  final Color? background;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: AppColors.bgApp,
+      color: background ?? AppColors.bgApp,
       padding: EdgeInsets.fromLTRB(18.w, 12.h, 18.w, bottomGap.h),
       child: Row(
         children: [

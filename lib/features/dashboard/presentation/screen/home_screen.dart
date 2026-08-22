@@ -33,9 +33,10 @@ class HomeScreen extends ConsumerWidget {
         duration: AppConstants.fadeIn,
         curve: Curves.easeOut,
         builder: (context, value, child) => Opacity(opacity: value, child: child),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
+        // No top SafeArea: the navy header paints behind the OS status bar
+        // (the design's header block includes the status zone) and applies the
+        // inset internally.
+        child: Column(
             children: [
               HomeHeader(
                 name: name,
@@ -137,7 +138,6 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
             ],
-          ),
         ),
       ),
     );

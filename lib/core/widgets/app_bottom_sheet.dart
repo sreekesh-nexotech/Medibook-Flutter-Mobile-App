@@ -21,6 +21,9 @@ Future<void> showMedibookSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    // Root navigator so the sheet + scrim cover the bottom-nav shell too,
+    // matching the design (the scrim dims the whole screen).
+    useRootNavigator: true,
     backgroundColor: AppColors.surface,
     barrierColor: AppColors.scrim,
     isScrollControlled: true,

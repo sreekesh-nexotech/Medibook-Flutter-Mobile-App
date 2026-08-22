@@ -28,6 +28,10 @@ import '../support/harness.dart';
 ///   • Doctor Detail / booking doctor cards for Dr. Anya — load a portrait asset.
 void main() {
   Future<void> screenGolden(WidgetTester tester, Widget screen, String name) async {
+    // Full phone surface — the default 800x600 test view clips 844-tall screens.
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(screenHarness(screen));
     await tester.pumpAndSettle();
     await expectLater(find.byType(screen.runtimeType), matchesGoldenFile('images/screen_$name.png'));

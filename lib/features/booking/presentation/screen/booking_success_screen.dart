@@ -37,7 +37,10 @@ class BookingSuccessScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
+      // top:false — the design centers this screen's content on the full
+      // screen height (the status zone is part of the white canvas).
       body: SafeArea(
+        top: false,
         child: _FadeEnter(
           child: Padding(
             padding: EdgeInsets.all(28.w),

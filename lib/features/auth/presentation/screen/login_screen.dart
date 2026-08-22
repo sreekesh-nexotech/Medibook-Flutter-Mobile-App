@@ -115,10 +115,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    AppCheckbox(
-                      value: _remember,
-                      onChanged: (v) => setState(() => _remember = v),
-                      label: 'Remember me',
+                    // Expanded bounds the checkbox so its internal Expanded
+                    // label gets finite width (it crashes unbounded rows).
+                    Expanded(
+                      child: AppCheckbox(
+                        value: _remember,
+                        onChanged: (v) => setState(() => _remember = v),
+                        label: 'Remember me',
+                      ),
                     ),
                     GestureDetector(
                       onTap: () => context.go(AppRoutes.forgot),

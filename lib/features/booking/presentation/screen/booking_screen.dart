@@ -65,19 +65,22 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   @override
   void initState() {
     super.initState();
-    // Seed the draft from the route params before the first build so the
-    // correct step renders immediately (per the controller's contract, this is
-    // the initState entry point — never called from build).
-    ref
-        .read(bookingControllerProvider.notifier)
-        .configure(
-          step: int.tryParse(widget.step ?? '1') ?? 1,
-          departmentName: widget.dept,
-          doctorId: widget.doctor,
-          origin: widget.origin == 'appointments'
-              ? BookingOrigin.appointments
-              : BookingOrigin.home,
-        );
+    // Seed the draft from the route params. Riverpod forbids mutating a
+    // provider while the tree is building (initState runs mid-build on
+    // navigation), so defer one microtask; the autoDispose draft starts on
+    // step 1, making the pre-configure frame visually correct for a fresh
+    // flow and imperceptible (<1 frame) for deep links.
+    Future.microtask(() {
+      if (!mounted) return;
+      ref.read(bookingControllerProvider.notifier).configure(
+            step: int.tryParse(widget.step ?? '1') ?? 1,
+            departmentName: widget.dept,
+            doctorId: widget.doctor,
+            origin: widget.origin == 'appointments'
+                ? BookingOrigin.appointments
+                : BookingOrigin.home,
+          );
+    });
   }
 
   /// Header + system back: consume a step if possible, otherwise leave the flow
