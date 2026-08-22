@@ -16,12 +16,13 @@ class DoctorStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: AppText.poppins(
             size: 16,
             weight: AppText.bold,
@@ -31,6 +32,7 @@ class DoctorStat extends StatelessWidget {
         SizedBox(height: 2.h),
         Text(
           label,
+          textAlign: TextAlign.center,
           style: AppText.poppins(size: 11, color: AppColors.textMuted),
         ),
       ],

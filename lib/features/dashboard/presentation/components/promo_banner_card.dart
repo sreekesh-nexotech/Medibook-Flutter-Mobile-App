@@ -22,9 +22,9 @@ class PromoBannerCard extends ConsumerStatefulWidget {
 }
 
 class _PromoBannerCardState extends ConsumerState<PromoBannerCard> {
-  late final PageController _controller = PageController(
-    initialPage: ref.read(bannerControllerProvider),
-  );
+  // The banner controller starts at index 0 (autoDispose → fresh on entry), so
+  // the initial page aligns without reading the provider here.
+  final PageController _controller = PageController();
 
   @override
   void dispose() {
