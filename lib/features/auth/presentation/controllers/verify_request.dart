@@ -93,8 +93,7 @@ class VerifyRequest {
     final query = <String>[
       'purpose=${purpose.slug}',
       'channel=${channel.slug}',
-      if (destination.isNotEmpty)
-        'to=${Uri.encodeQueryComponent(destination)}',
+      if (destination.isNotEmpty) 'to=${Uri.encodeQueryComponent(destination)}',
     ];
     return '${AppRoutes.verify}?${query.join('&')}';
   }

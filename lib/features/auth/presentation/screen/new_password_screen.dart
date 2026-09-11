@@ -2,17 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'package:medibook/app/router/app_routes.dart';
-import 'package:medibook/app/theme/colors.dart';
-import 'package:medibook/app/theme/typography.dart';
-import 'package:medibook/core/widgets/app_button.dart';
-import 'package:medibook/core/widgets/app_inner_header.dart';
-import 'package:medibook/core/widgets/app_text_field.dart';
-import 'package:medibook/core/widgets/toast/toast_controller.dart';
-import 'package:medibook/features/auth/presentation/components/screen_fade_rise.dart';
-import 'package:medibook/features/auth/presentation/controllers/reset_form_controller.dart';
 
-/// New Password (`/reset`). Back → Verify. Reset Password → Login + toast.
+import '../../../../app/router/app_routes.dart';
+import '../../../../app/theme/colors.dart';
+import '../../../../app/theme/typography.dart';
+import '../../../../core/error/error_view.dart';
+import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_inner_header.dart';
+import '../../../../core/widgets/toast/toast_controller.dart';
+import '../components/field_focus_group.dart';
+import '../components/new_password_fields.dart';
+import '../components/screen_fade_rise.dart';
+import '../controllers/auth_flow_draft.dart';
+import '../controllers/reset_form_controller.dart';
+import '../controllers/verify_request.dart';
+
+/// New Password (`/reset`) — the last step of the **logged-out** reset flow.
+///
+/// This is not the signed-in change-password screen: that one is
+/// `change_password_screen.dart` (CM-51), which asks for the current password
+/// because a signed-in session is not proof of intent. The two share
+/// [NewPasswordFields] — the new + confirm pair, with the show/hide eye, the
+/// `newPassword` autofill hint and the live "passwords do not match" recheck —
+/// and nothing else.
 class NewPasswordScreen extends ConsumerStatefulWidget {
   const NewPasswordScreen({super.key});
 
@@ -24,27 +36,64 @@ class _NewPasswordScreenState extends ConsumerState<NewPasswordScreen> {
   final TextEditingController _password = TextEditingController();
   final TextEditingController _confirm = TextEditingController();
 
+  late final Map<String, TextEditingController> _controllers = {
+    ResetFields.password: _password,
+    ResetFields.confirm: _confirm,
+  };
+
+  late final FieldFocusGroup _focus = FieldFocusGroup(
+    onBlur: (field) => _form.onBlur(field, _controllers[field]?.text ?? ''),
+  );
+
+  ResetFormController get _form =>
+      ref.read(resetFormControllerProvider.notifier);
+
   @override
   void dispose() {
     _password.dispose();
     _confirm.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
-  void _reset() {
-    final valid = ref
-        .read(resetFormControllerProvider.notifier)
-        .validate(password: _password.text, confirm: _confirm.text);
-    if (!valid) return;
+  void _onFieldChanged(String field, String value) {
+    if (field == ResetFields.password) {
+      _form.onPasswordChanged(value, confirm: _confirm.text);
+      return;
+    }
+    _form.onChanged(field, value);
+  }
+
+  Future<void> _submit() async {
+    _focus.unfocus();
+    if (!_form.validateForm(password: _password.text, confirm: _confirm.text)) {
+      return;
+    }
+    final changed = await _form.submit(password: _password.text);
+    if (!changed || !mounted) return;
     ref
         .read(toastControllerProvider.notifier)
         .show('Password reset — please log in');
     context.go(AppRoutes.login);
   }
 
+  /// Back goes to the code step the user came from, carrying the same draft so
+  /// `/verify` still knows where the code was sent.
+  String get _backPath {
+    final draft = ref.read(passwordResetDraftProvider);
+    if (draft == null) return AppRoutes.forgot;
+    return VerifyRequest(
+      purpose: VerifyPurpose.passwordReset,
+      channel: draft.channel,
+      destination: draft.destination,
+    ).path;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final errors = ref.watch(resetFormControllerProvider);
+    final form = ref.watch(resetFormControllerProvider);
+    final failure = form.failure;
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
@@ -54,55 +103,51 @@ class _NewPasswordScreenState extends ConsumerState<NewPasswordScreen> {
             children: [
               AppInnerHeader(
                 title: 'New Password',
-                onBack: () => context.go(AppRoutes.verify),
+                onBack: () => context.go(_backPath),
                 bottomGap: 8,
                 background: AppColors.surface,
+                backSemanticLabel: 'Back to the verification code',
               ),
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(24.w, 10.h, 24.w, 32.h),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Create a new password for your account.',
-                        style: AppText.poppins(
-                          size: 14,
-                          color: AppColors.textBody,
-                          height: 1.55,
+                  child: AutofillGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Create a new password for your account.',
+                          style: AppText.poppins(
+                            size: AppFontSize.base,
+                            color: AppColors.textBody,
+                            height: 1.55,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: 24.h),
-                      AppTextField(
-                        label: 'New Password',
-                        controller: _password,
-                        hintText: 'At least 6 characters',
-                        obscureText: true,
-                        textInputAction: TextInputAction.next,
-                        errorText: errors.passwordError,
-                        onChanged: (_) => ref
-                            .read(resetFormControllerProvider.notifier)
-                            .clearPasswordError(),
-                      ),
-                      SizedBox(height: 16.h),
-                      AppTextField(
-                        label: 'Confirm Password',
-                        controller: _confirm,
-                        hintText: 'Repeat the password',
-                        obscureText: true,
-                        textInputAction: TextInputAction.done,
-                        errorText: errors.confirmError,
-                        onChanged: (_) => ref
-                            .read(resetFormControllerProvider.notifier)
-                            .clearConfirmError(),
-                      ),
-                      SizedBox(height: 24.h),
-                      AppButton(
-                        label: 'Reset Password',
-                        fullWidth: true,
-                        onPressed: _reset,
-                      ),
-                    ],
+                        SizedBox(height: 24.h),
+                        if (failure != null) ...[
+                          AppInlineError(failure: failure),
+                          SizedBox(height: 16.h),
+                        ],
+                        NewPasswordFields(
+                          passwordField: ResetFields.password,
+                          confirmField: ResetFields.confirm,
+                          passwordController: _password,
+                          confirmController: _confirm,
+                          state: form,
+                          focus: _focus,
+                          onChanged: _onFieldChanged,
+                          onSubmit: _submit,
+                          enabled: !form.isBusy,
+                        ),
+                        SizedBox(height: 24.h),
+                        AppButton(
+                          label: 'Reset Password',
+                          fullWidth: true,
+                          loading: form.isBusy,
+                          onPressed: _submit,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

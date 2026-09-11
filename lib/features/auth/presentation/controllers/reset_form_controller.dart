@@ -89,11 +89,13 @@ class ResetFormController extends AuthFormController {
     }
 
     try {
-      await _ref.read(authRepositoryProvider).resetPassword(
-        email: draft.destination,
-        code: draft.code,
-        newPassword: password,
-      );
+      await _ref
+          .read(authRepositoryProvider)
+          .resetPassword(
+            email: draft.destination,
+            code: draft.code,
+            newPassword: password,
+          );
       return null;
     } catch (error, stackTrace) {
       return error.asFailure(stackTrace);

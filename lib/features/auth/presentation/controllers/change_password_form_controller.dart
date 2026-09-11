@@ -102,10 +102,9 @@ class ChangePasswordFormController extends AuthFormController {
       }
 
       try {
-        await _ref.read(authRepositoryProvider).changePassword(
-          currentPassword: current,
-          newPassword: password,
-        );
+        await _ref
+            .read(authRepositoryProvider)
+            .changePassword(currentPassword: current, newPassword: password);
         setFailure(null);
         return true;
       } catch (error, stackTrace) {

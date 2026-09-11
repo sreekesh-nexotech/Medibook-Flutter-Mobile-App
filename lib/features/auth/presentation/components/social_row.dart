@@ -1,27 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:medibook/app/config/constants.dart';
-import 'package:medibook/app/theme/colors.dart';
-import 'package:medibook/app/theme/typography.dart';
 
-/// The Login social-sign-in row: three 50px circular bordered buttons (G / f /
-/// X). All three fire the same [onTap] (the prototype routes every provider to
-/// the same demo login). Not a design-system component — kept local to Auth.
+import '../../../../app/config/constants.dart';
+import '../../../../app/theme/colors.dart';
+import '../../../../app/theme/typography.dart';
+
+/// One federated sign-in provider offered on the sign-in screen.
+enum SocialProvider {
+  google('G', 'Google'),
+  facebook('f', 'Facebook'),
+  x('X', 'X');
+
+  const SocialProvider(this.glyph, this.label);
+
+  /// The single character the design draws in the circle.
+  final String glyph;
+
+  /// The provider's name — the screen-reader label, and the `<Action>` in the
+  /// house "stubbed" wording.
+  final String label;
+
+  /// "Sign in with Google" — what the button announces and what a stubbed
+  /// toast names.
+  String get actionLabel => 'Sign in with $label';
+}
+
+/// The sign-in social row: three 50px circular bordered buttons (G / f / X).
+///
+/// [onProviderTap] receives the [SocialProvider] that was tapped rather than a
+/// bare `VoidCallback`, because the three are not interchangeable: no OAuth
+/// client is configured in this build, so the screen has to say *which*
+/// provider is not wired up rather than quietly land on Home as though a
+/// Google sign-in had succeeded (the contract's rule on honest controls).
+///
+/// Each circle is a labelled button of at least 48px, so it is reachable by
+/// touch and announced as "Sign in with Google" rather than "G".
 class SocialRow extends StatelessWidget {
-  const SocialRow({super.key, this.onTap});
+  const SocialRow({super.key, this.onProviderTap});
 
-  final VoidCallback? onTap;
+  final ValueChanged<SocialProvider>? onProviderTap;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _SocialButton(label: 'G', onTap: onTap),
-        SizedBox(width: 18.w),
-        _SocialButton(label: 'f', onTap: onTap),
-        SizedBox(width: 18.w),
-        _SocialButton(label: 'X', onTap: onTap),
+        for (var i = 0; i < SocialProvider.values.length; i++) ...[
+          if (i > 0) SizedBox(width: 18.w),
+          _SocialButton(
+            provider: SocialProvider.values[i],
+            onTap: onProviderTap == null
+                ? null
+                : () => onProviderTap!(SocialProvider.values[i]),
+          ),
+        ],
       ],
     );
   }
@@ -29,9 +61,9 @@ class SocialRow extends StatelessWidget {
 
 /// StatefulWidget only for the local press-scale (0.94) feedback.
 class _SocialButton extends StatefulWidget {
-  const _SocialButton({required this.label, this.onTap});
+  const _SocialButton({required this.provider, this.onTap});
 
-  final String label;
+  final SocialProvider provider;
   final VoidCallback? onTap;
 
   @override
@@ -48,32 +80,39 @@ class _SocialButtonState extends State<_SocialButton> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _set(true),
-      onTapUp: (_) {
-        _set(false);
-        widget.onTap?.call();
-      },
-      onTapCancel: () => _set(false),
-      child: AnimatedScale(
-        scale: _pressed ? 0.94 : 1,
-        duration: AppConstants.pressScale,
-        child: Container(
-          // Equal width/height keeps a true circle across scale factors.
-          width: 50.w,
-          height: 50.w,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.border, width: 1.w),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            widget.label,
-            style: AppText.poppins(
-              size: 20,
-              weight: AppText.bold,
-              color: AppColors.textStrong,
+    return Semantics(
+      button: true,
+      enabled: widget.onTap != null,
+      label: widget.provider.actionLabel,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onTapDown: (_) => _set(true),
+          onTapUp: (_) {
+            _set(false);
+            widget.onTap?.call();
+          },
+          onTapCancel: () => _set(false),
+          child: AnimatedScale(
+            scale: _pressed ? 0.94 : 1,
+            duration: AppConstants.pressScale,
+            child: Container(
+              // Equal width/height keeps a true circle across scale factors.
+              width: 50.w,
+              height: 50.w,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.border, width: 1.w),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                widget.provider.glyph,
+                style: AppText.poppins(
+                  size: 20,
+                  weight: AppText.bold,
+                  color: AppColors.textStrong,
+                ),
+              ),
             ),
           ),
         ),

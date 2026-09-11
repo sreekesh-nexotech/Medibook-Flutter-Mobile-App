@@ -84,7 +84,9 @@ class AuthFormState {
 
   @override
   int get hashCode => Object.hash(
-    Object.hashAllUnordered(errors.entries.map((e) => Object.hash(e.key, e.value))),
+    Object.hashAllUnordered(
+      errors.entries.map((e) => Object.hash(e.key, e.value)),
+    ),
     Object.hashAllUnordered(touched),
     submitted,
     isBusy,

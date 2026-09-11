@@ -67,9 +67,10 @@ class SignupFormController extends AuthFormController {
     SignupFields.city => Validators.requiredField('a city', value),
     SignupFields.stateName => Validators.requiredField('a state', value),
     SignupFields.pincode => Validators.pincode(value),
-    SignupFields.terms => value.isEmpty
-        ? 'Accept the Terms, Privacy Policy and User Guidelines to continue'
-        : null,
+    SignupFields.terms =>
+      value.isEmpty
+          ? 'Accept the Terms, Privacy Policy and User Guidelines to continue'
+          : null,
     _ => null,
   };
 

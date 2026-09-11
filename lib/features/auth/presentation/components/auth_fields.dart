@@ -107,7 +107,13 @@ class AuthTextField extends StatelessWidget {
       enabled: enabled,
       textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
       onChanged: (value) => onChanged(field, value),
-      onSubmitted: (_) => isLast ? onSubmit?.call() : onEditingComplete?.call(),
+      onSubmitted: (_) {
+        if (isLast) {
+          onSubmit?.call();
+        } else {
+          onEditingComplete?.call();
+        }
+      },
     );
   }
 }
@@ -162,7 +168,13 @@ class AuthPasswordField extends StatelessWidget {
       enabled: enabled,
       textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
       onChanged: (value) => onChanged(field, value),
-      onSubmitted: (_) => isLast ? onSubmit?.call() : onEditingComplete?.call(),
+      onSubmitted: (_) {
+        if (isLast) {
+          onSubmit?.call();
+        } else {
+          onEditingComplete?.call();
+        }
+      },
     );
   }
 }
@@ -213,7 +225,13 @@ class AuthPhoneField extends StatelessWidget {
       enabled: enabled,
       textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
       onChanged: (value) => onChanged(field, value),
-      onSubmitted: (_) => isLast ? onSubmit?.call() : onEditingComplete?.call(),
+      onSubmitted: (_) {
+        if (isLast) {
+          onSubmit?.call();
+        } else {
+          onEditingComplete?.call();
+        }
+      },
     );
   }
 }

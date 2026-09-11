@@ -106,15 +106,17 @@ class VerifyFormController extends AuthFormController {
     final draft = _ref.read(signupDraftProvider);
     if (draft == null) return null;
     if (draft.addressLine1.isNotEmpty) {
-      _ref.read(addressesStoreProvider.notifier).add(
-        label: draft.addressLabel.isEmpty ? 'Home' : draft.addressLabel,
-        line1: draft.addressLine1,
-        line2: draft.addressLine2.isEmpty ? null : draft.addressLine2,
-        city: draft.city,
-        stateName: draft.stateName,
-        pincode: draft.pincode,
-        isDefault: true,
-      );
+      _ref
+          .read(addressesStoreProvider.notifier)
+          .add(
+            label: draft.addressLabel.isEmpty ? 'Home' : draft.addressLabel,
+            line1: draft.addressLine1,
+            line2: draft.addressLine2.isEmpty ? null : draft.addressLine2,
+            city: draft.city,
+            stateName: draft.stateName,
+            pincode: draft.pincode,
+            isDefault: true,
+          );
     }
     _ref.read(signupDraftProvider.notifier).clear();
     return draft;
@@ -148,10 +150,9 @@ class VerifyFormController extends AuthFormController {
 
     if (!request.signsIn) return null;
 
-    return _ref.read(authProvider.notifier).loginWithOtp(
-      phone: request.destination,
-      code: code,
-    );
+    return _ref
+        .read(authProvider.notifier)
+        .loginWithOtp(phone: request.destination, code: code);
   }
 }
 
