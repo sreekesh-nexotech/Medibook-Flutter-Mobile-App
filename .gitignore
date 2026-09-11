@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Golden-test diff artifacts, written by `flutter test` on a golden mismatch.
+# Generated output — never committed.
+test/**/failures/
