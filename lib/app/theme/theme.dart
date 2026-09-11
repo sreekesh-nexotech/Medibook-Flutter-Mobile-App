@@ -17,9 +17,8 @@ abstract final class AppRadii {
   static BorderRadius get pill => BorderRadius.circular(AppRadius.pill.r);
 
   /// Hero header / bottom-sheet top corners (24px both top corners).
-  static BorderRadius get sheetTop => BorderRadius.vertical(
-    top: Radius.circular(AppRadius.xl.r),
-  );
+  static BorderRadius get sheetTop =>
+      BorderRadius.vertical(top: Radius.circular(AppRadius.xl.r));
 }
 
 /// Soft, low, neutral ambient shadows. `--shadow-sm` is the card default.

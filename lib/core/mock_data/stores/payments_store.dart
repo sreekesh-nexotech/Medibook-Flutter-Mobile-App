@@ -138,10 +138,8 @@ class PaymentsStore extends Notifier<List<PaymentRecord>> {
 
   /// Total actually paid across the account — the arithmetic the old string
   /// fees made impossible (audit §3.8.2).
-  Money get totalPaid => state
-      .where((p) => p.status.isSettled)
-      .map((p) => p.amount)
-      .sum;
+  Money get totalPaid =>
+      state.where((p) => p.status.isSettled).map((p) => p.amount).sum;
 }
 
 /// The account's payment ledger. Not autoDispose — booking writes it and
@@ -167,11 +165,12 @@ final paymentForAppointmentProvider = Provider.autoDispose
     });
 
 /// One payment by id. autoDispose family.
-final paymentByIdProvider = Provider.autoDispose
-    .family<PaymentRecord?, String>((ref, id) {
-      final payments = ref.watch(paymentsStoreProvider);
-      for (final payment in payments) {
-        if (payment.id == id) return payment;
-      }
-      return null;
-    });
+final paymentByIdProvider = Provider.autoDispose.family<PaymentRecord?, String>(
+  (ref, id) {
+    final payments = ref.watch(paymentsStoreProvider);
+    for (final payment in payments) {
+      if (payment.id == id) return payment;
+    }
+    return null;
+  },
+);

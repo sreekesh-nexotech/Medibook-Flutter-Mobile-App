@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+<!--
+  The window shown from process start until Flutter's first frame.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+  Branded by hand in XML so the cold-start flash is Medibook white with the
+  brand mark rather than a bare white rectangle. The bitmap layer references
+  @mipmap/ic_launcher_foreground, which is generated from assets/icons/ (see
+  the flutter_native_splash block in pubspec.yaml for regeneration).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/medibook_splash_surface" />
+
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@mipmap/ic_launcher_foreground" />
+    </item>
 </layer-list>

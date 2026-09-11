@@ -15,8 +15,7 @@ class InsuranceStore extends Notifier<List<InsurancePolicy>> {
   List<InsurancePolicy> build() => MedibookSeed.insurancePolicies;
 
   /// Policies in force today — the only ones a claim can be made against.
-  List<InsurancePolicy> get active =>
-      state.where((p) => p.isActive).toList();
+  List<InsurancePolicy> get active => state.where((p) => p.isActive).toList();
 
   /// Policies within 30 days of expiry — the CM-39 renewal nudge.
   List<InsurancePolicy> get expiringSoon =>
@@ -86,9 +85,7 @@ class InsuranceStore extends Notifier<List<InsurancePolicy>> {
 /// The account's insurance policies. Not autoDispose — Insurance and the
 /// payment step both read it.
 final insuranceStoreProvider =
-    NotifierProvider<InsuranceStore, List<InsurancePolicy>>(
-      InsuranceStore.new,
-    );
+    NotifierProvider<InsuranceStore, List<InsurancePolicy>>(InsuranceStore.new);
 
 /// Policies in force today — what a cashless-claim option may use.
 final activeInsurancePoliciesProvider = Provider<List<InsurancePolicy>>((ref) {

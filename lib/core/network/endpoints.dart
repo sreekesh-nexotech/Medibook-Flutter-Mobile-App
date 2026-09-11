@@ -88,8 +88,7 @@ abstract final class Endpoints {
 
   // ---- Insurance (CM-37 … CM-39) ----
   static const String insurancePolicies = '/insurance/policies';
-  static String insurancePolicy(String id) =>
-      '/insurance/policies/${_seg(id)}';
+  static String insurancePolicy(String id) => '/insurance/policies/${_seg(id)}';
 
   // ---- Notifications (CM-40 … CM-43) ----
   static const String notifications = '/notifications';

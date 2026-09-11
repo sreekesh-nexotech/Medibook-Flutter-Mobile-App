@@ -343,8 +343,7 @@ class _PulseState extends State<_Pulse> {
         if (!mounted) return;
         setState(() => _target = _target == 1 ? 0.45 : 1);
       },
-      builder: (context, value, child) =>
-          Opacity(opacity: value, child: child),
+      builder: (context, value, child) => Opacity(opacity: value, child: child),
       child: widget.child,
     );
   }

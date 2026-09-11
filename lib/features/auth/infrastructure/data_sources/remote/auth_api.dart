@@ -170,9 +170,6 @@ class HttpAuthApi implements AuthApi {
     required String newPassword,
   }) => _client.post(
     Endpoints.changePassword,
-    body: {
-      'current_password': currentPassword,
-      'new_password': newPassword,
-    },
+    body: {'current_password': currentPassword, 'new_password': newPassword},
   );
 }

@@ -45,13 +45,11 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<AuthResult> login({
-    required String email,
-    required String password,
-  }) => _authenticate(
-    () => _api.login(email: email, password: password),
-    method: AuthMethod.password,
-  );
+  Future<AuthResult> login({required String email, required String password}) =>
+      _authenticate(
+        () => _api.login(email: email, password: password),
+        method: AuthMethod.password,
+      );
 
   @override
   Future<AuthResult> loginWithOtp({
@@ -73,12 +71,8 @@ class AuthRepositoryImpl implements AuthRepository {
     required String phone,
     required String password,
   }) => _authenticate(
-    () => _api.signUp(
-      name: name,
-      email: email,
-      phone: phone,
-      password: password,
-    ),
+    () =>
+        _api.signUp(name: name, email: email, phone: phone, password: password),
     method: AuthMethod.password,
   );
 
@@ -109,11 +103,7 @@ class AuthRepositoryImpl implements AuthRepository {
         name: 'auth',
         error: error,
       );
-      CrashReporting.recordError(
-        error,
-        stackTrace,
-        reason: 'logout:server',
-      );
+      CrashReporting.recordError(error, stackTrace, reason: 'logout:server');
     }
 
     // The part that must always happen (CM-53).
@@ -133,11 +123,8 @@ class AuthRepositoryImpl implements AuthRepository {
     required String code,
     required String newPassword,
   }) => _run(
-    () => _api.resetPassword(
-      email: email,
-      code: code,
-      newPassword: newPassword,
-    ),
+    () =>
+        _api.resetPassword(email: email, code: code, newPassword: newPassword),
   );
 
   @override
@@ -211,17 +198,12 @@ class AuthRepositoryImpl implements AuthRepository {
   /// Throws a [ServerFailure] rather than returning a half-built entity when
   /// the response is missing an id — a `User` with no id would corrupt every
   /// cache key that hashes the account (HIVE spec, Scenario 10).
-  User _userFrom(
-    Map<String, Object?> payload, {
-    required AuthMethod method,
-  }) {
+  User _userFrom(Map<String, Object?> payload, {required AuthMethod method}) {
     final raw = payload['user'];
     final map = raw is Map<String, Object?> ? raw : payload;
     final id = map['id'];
     if (id is! String || id.isEmpty) {
-      throw const ServerFailure(
-        debugMessage: 'auth payload has no user.id',
-      );
+      throw const ServerFailure(debugMessage: 'auth payload has no user.id');
     }
     final dob = map['date_of_birth'];
     return User(
@@ -254,7 +236,8 @@ class AuthRepositoryImpl implements AuthRepository {
       refreshToken: payload['refresh_token'] as String?,
       expiresAt: switch (expiresAtRaw) {
         final String iso => DateTime.tryParse(iso),
-        _ => expiresIn is int
+        _ =>
+          expiresIn is int
               ? DateTime.now().add(Duration(seconds: expiresIn))
               : null,
       },

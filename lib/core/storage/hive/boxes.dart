@@ -80,11 +80,7 @@ abstract final class HiveBoxes {
   ///
   /// [settings] deliberately survives, so a returning user keeps their theme
   /// and city; everything patient-specific does not.
-  static const List<String> clearedOnLogout = [
-    auth,
-    outbox,
-    ...evictable,
-  ];
+  static const List<String> clearedOnLogout = [auth, outbox, ...evictable];
 }
 
 /// Hive `typeId` registry.

@@ -57,9 +57,7 @@ final departmentsProvider = Provider<List<Department>>(
   (ref) => MedibookSeed.departments,
 );
 
-final doctorsProvider = Provider<List<Doctor>>(
-  (ref) => MedibookSeed.doctors,
-);
+final doctorsProvider = Provider<List<Doctor>>((ref) => MedibookSeed.doctors);
 
 /// A single doctor by id (used by doctor detail, appointment cards, etc.).
 final doctorByIdProvider = Provider.family<Doctor, String>(
@@ -177,10 +175,11 @@ typedef FeeQuery = ({String doctorId, String? couponCode});
 
 /// The itemised fee for a doctor, with GST and the convenience fee (CM-13,
 /// CM-19). autoDispose family — it is scoped to one booking.
-final feeBreakdownProvider = Provider.autoDispose.family<FeeBreakdown, FeeQuery>(
-  (ref, query) =>
-      MedibookSeed.feeFor(query.doctorId, couponCode: query.couponCode),
-);
+final feeBreakdownProvider = Provider.autoDispose
+    .family<FeeBreakdown, FeeQuery>(
+      (ref, query) =>
+          MedibookSeed.feeFor(query.doctorId, couponCode: query.couponCode),
+    );
 
 /// The payment methods the payment screen offers (CM-17).
 final paymentMethodsProvider = Provider<List<PaymentMethod>>(

@@ -138,8 +138,7 @@ class Appointment {
 
   /// Whether the appointment can still be rescheduled or cancelled — only a
   /// confirmed, future appointment can.
-  bool get isActionable =>
-      status == AppointmentStatus.confirmed && !isPast;
+  bool get isActionable => status == AppointmentStatus.confirmed && !isPast;
 
   /// Additive typed `copyWith`, plus the legacy string parameters.
   ///
@@ -158,7 +157,8 @@ class Appointment {
     String? patientId,
     String? paymentId,
   }) {
-    final resolvedAt = scheduledAt ??
+    final resolvedAt =
+        scheduledAt ??
         (date == null && time == null
             ? this.scheduledAt
             : AppDates.fromLabels(

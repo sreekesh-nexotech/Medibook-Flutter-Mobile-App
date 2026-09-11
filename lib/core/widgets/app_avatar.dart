@@ -63,8 +63,8 @@ class AppAvatar extends StatelessWidget {
         fit: BoxFit.cover,
         width: size.w,
         height: size.w,
-        placeholder: (_, __) => _fallback(),
-        errorWidget: (_, __, ___) => _fallback(),
+        placeholder: (_, _) => _fallback(),
+        errorWidget: (_, _, _) => _fallback(),
       );
     } else if (imageAsset != null) {
       inner = Image.asset(
@@ -72,7 +72,7 @@ class AppAvatar extends StatelessWidget {
         fit: BoxFit.cover,
         width: size.w,
         height: size.w,
-        errorBuilder: (_, __, ___) => _fallback(),
+        errorBuilder: (_, _, _) => _fallback(),
       );
     } else {
       inner = _fallback();

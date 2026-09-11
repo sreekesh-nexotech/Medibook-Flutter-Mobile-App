@@ -132,7 +132,8 @@ abstract final class HiveInit {
         stackTrace: stackTrace,
       );
       return CacheFailure(
-        userMessage: 'Offline data is unavailable on this device. The app will '
+        userMessage:
+            'Offline data is unavailable on this device. The app will '
             'keep working but will need a connection.',
         debugMessage: 'LocalStore.open failed',
         cause: error,

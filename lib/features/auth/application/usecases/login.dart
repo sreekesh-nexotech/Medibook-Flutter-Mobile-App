@@ -72,10 +72,7 @@ class Login {
   ///    attempt — it must not burn one of the five.
   /// 3. Call the repository; on rejection, advance the persisted counter and
   ///    start a lockout if it reached [AppConstants.maxLoginAttempts].
-  Future<LoginOutcome> call({
-    required String email,
-    required String password,
-  }) {
+  Future<LoginOutcome> call({required String email, required String password}) {
     final emailError = Validators.email(email);
     return _attempt(
       localError: emailError ?? Validators.requiredPassword(password),
@@ -86,10 +83,7 @@ class Login {
 
   /// Attempt a mobile/OTP sign-in (CM-04). Shares the same lockout budget —
   /// two doors into one account cannot each get five tries.
-  Future<LoginOutcome> withOtp({
-    required String phone,
-    required String code,
-  }) {
+  Future<LoginOutcome> withOtp({required String phone, required String code}) {
     final phoneError = Validators.phone(phone);
     return _attempt(
       localError: phoneError ?? Validators.otp(code),

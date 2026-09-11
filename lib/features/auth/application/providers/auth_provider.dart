@@ -32,9 +32,7 @@ final authApiProvider = Provider<AuthApi>(
 
 /// Auth local data source (credentials + the persisted lockout counters).
 final authLocalDataSourceProvider = Provider<AuthLocalDataSource>(
-  (ref) => AuthLocalDataSourceImpl(
-    secureStore: ref.watch(secureStoreProvider),
-  ),
+  (ref) => AuthLocalDataSourceImpl(secureStore: ref.watch(secureStoreProvider)),
 );
 
 /// The auth repository. Every auth caller depends on this, not on the impl,
@@ -115,10 +113,8 @@ class AuthController extends StateNotifier<AuthState> {
 
   /// Email + password sign-in. Returns null on success, or the [Failure] that
   /// the form should render.
-  Future<Failure?> login({
-    required String email,
-    required String password,
-  }) => _applyOutcome(() => _login(email: email, password: password));
+  Future<Failure?> login({required String email, required String password}) =>
+      _applyOutcome(() => _login(email: email, password: password));
 
   /// Mobile + OTP sign-in (CM-04). Shares the lockout budget with [login].
   Future<Failure?> loginWithOtp({
@@ -151,13 +147,15 @@ class AuthController extends StateNotifier<AuthState> {
         );
         return state.failure;
 
-      case LoginRejected(:final failure, :final failedAttempts, :final lockedUntil):
+      case LoginRejected(
+        :final failure,
+        :final failedAttempts,
+        :final lockedUntil,
+      ):
         state = AuthUnauthenticated(
           failedAttempts: failedAttempts,
           lockedUntil: lockedUntil,
-          failure: lockedUntil == null
-              ? failure
-              : _lockoutFailure(lockedUntil),
+          failure: lockedUntil == null ? failure : _lockoutFailure(lockedUntil),
         );
         return state.failure;
     }
@@ -230,8 +228,7 @@ class AuthController extends StateNotifier<AuthState> {
   Failure _lockoutFailure(DateTime until) {
     final seconds = until.difference(DateTime.now()).inSeconds.clamp(0, 3600);
     return UnauthorizedFailure(
-      userMessage:
-          'Too many failed attempts. Try again in $seconds seconds.',
+      userMessage: 'Too many failed attempts. Try again in $seconds seconds.',
       sessionExpired: false,
       debugMessage: 'locked until ${until.toIso8601String()}',
     );

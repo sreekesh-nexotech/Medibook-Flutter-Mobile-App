@@ -12,7 +12,9 @@ abstract final class AppColors {
   AppColors._();
 
   // ---- Primary (brand navy / blue ramp) ----
-  static const Color primary100 = Color(0xFFE6ECFA); // tint surfaces, soft chips
+  static const Color primary100 = Color(
+    0xFFE6ECFA,
+  ); // tint surfaces, soft chips
   static const Color primary200 = Color(0xFFB0C4EF);
   static const Color primary300 = Color(0xFF739EE4);
   static const Color primary400 = Color(0xFF4979BE);
@@ -86,11 +88,15 @@ abstract final class AppColors {
   static const Color successSoft = Color(0xFFBFE6CC); // "Completed" pill bg
   static const Color successText = Color(0xFF1B6B3A);
   static const Color danger = Color(0xFFE14C4C);
-  static const Color dangerSoft = Color(0xFFF3C2C2); // "Pending"/"Cancelled" pill bg
+  static const Color dangerSoft = Color(
+    0xFFF3C2C2,
+  ); // "Pending"/"Cancelled" pill bg
   static const Color dangerText = Color(0xFFB23535);
   static const Color warning = Color(0xFFF5A623); // rating stars
   static const Color warningSoft = Color(0xFFFCE6BE);
 
   // ---- Overlays ----
-  static const Color scrim = Color(0x73141414); // rgba(20,20,20,0.45) modal scrim
+  static const Color scrim = Color(
+    0x73141414,
+  ); // rgba(20,20,20,0.45) modal scrim
 }

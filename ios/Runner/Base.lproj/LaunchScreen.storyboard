@@ -19,6 +19,10 @@
                             <imageView opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" image="LaunchImage" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4">
                             </imageView>
                         </subviews>
+                        <!-- Medibook surface white (AppColors.surface, #FFFFFF).
+                             The centred LaunchImage is the brand mark, so the
+                             iOS launch screen matches the Android launch window
+                             and the app's own first frame. -->
                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="1a2-6s-vTC"/>
@@ -32,6 +36,6 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchImage" width="168" height="185"/>
+        <image name="LaunchImage" width="160" height="160"/>
     </resources>
 </document>

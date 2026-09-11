@@ -61,12 +61,12 @@ class InsurancePolicy {
   bool get isExpired => DateTime.now().isAfter(validTo);
 
   /// Days until expiry; negative once expired.
-  int get daysUntilExpiry =>
-      AppDates.startOfDay(validTo).difference(AppDates.startOfDay(DateTime.now())).inDays;
+  int get daysUntilExpiry => AppDates.startOfDay(
+    validTo,
+  ).difference(AppDates.startOfDay(DateTime.now())).inDays;
 
   /// True within 30 days of expiry — the renewal nudge (CM-39).
-  bool get isExpiringSoon =>
-      !isExpired && daysUntilExpiry <= 30;
+  bool get isExpiringSoon => !isExpired && daysUntilExpiry <= 30;
 
   /// "Active" / "Expires in 12 days" / "Expired".
   String get statusLabel {

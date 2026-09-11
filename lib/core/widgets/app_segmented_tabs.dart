@@ -27,19 +27,19 @@ class AppSegmentedTabs extends StatelessWidget {
     return Align(
       alignment: AlignmentDirectional.centerStart,
       child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (var i = 0; i < tabs.length; i++) ...[
-            if (i > 0) SizedBox(width: 8.w),
-            _SegTab(
-              label: tabs[i],
-              isActive: tabs[i] == active,
-              onTap: onChanged == null ? null : () => onChanged!(tabs[i]),
-            ),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (var i = 0; i < tabs.length; i++) ...[
+              if (i > 0) SizedBox(width: 8.w),
+              _SegTab(
+                label: tabs[i],
+                isActive: tabs[i] == active,
+                onTap: onChanged == null ? null : () => onChanged!(tabs[i]),
+              ),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
   }

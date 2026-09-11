@@ -29,10 +29,7 @@ abstract interface class AuthRepository {
   Future<bool> hasValidSession();
 
   /// Email + password sign-in (CM-03).
-  Future<AuthResult> login({
-    required String email,
-    required String password,
-  });
+  Future<AuthResult> login({required String email, required String password});
 
   /// Mobile + OTP sign-in (CM-04). [phone] is the 10-digit national number.
   Future<AuthResult> loginWithOtp({

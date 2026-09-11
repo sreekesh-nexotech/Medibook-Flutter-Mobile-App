@@ -11,7 +11,11 @@ enum AppBadgeTone { neutral, brand, success, danger, warning }
 /// A soft status pill for record/appointment state ("Completed", "Pending").
 /// Pill, padding `6x14`, `--fs-sm`, weight medium.
 class AppBadge extends StatelessWidget {
-  const AppBadge({super.key, required this.label, this.tone = AppBadgeTone.neutral});
+  const AppBadge({
+    super.key,
+    required this.label,
+    this.tone = AppBadgeTone.neutral,
+  });
 
   final String label;
   final AppBadgeTone tone;

@@ -121,8 +121,7 @@ extension SecureStoreTokens on SecureStore {
 /// Not suitable for production. `app/bootstrap/app_bootstrap.dart` is the one
 /// place to swap it.
 class InMemorySecureStore implements SecureStore {
-  InMemorySecureStore({Map<String, String>? seed})
-    : _values = {...?seed};
+  InMemorySecureStore({Map<String, String>? seed}) : _values = {...?seed};
 
   final Map<String, String> _values;
 

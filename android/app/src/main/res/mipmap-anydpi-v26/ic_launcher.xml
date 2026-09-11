@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon (API 26+). The launcher masks these two layers into whatever
+  shape the device theme uses (circle, squircle, rounded square), so the
+  foreground glyph is drawn small enough to survive the tightest mask: it sits
+  inside the 66dp safe circle of the 108dp canvas.
+
+  The legacy square PNGs in mipmap-<density>/ic_launcher.png remain for API 25
+  and below.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/medibook_brand" />
+    <foreground android:drawable="@mipmap/ic_launcher_adaptive_fg" />
+    <monochrome android:drawable="@mipmap/ic_launcher_adaptive_fg" />
+</adaptive-icon>

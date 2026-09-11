@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dark-mode launch window. Medibook itself is a single light theme, but the
+  OS paints this window before Dart runs, so a device in dark mode would flash
+  white. Brand navy is the correct neutral there.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/medibook_brand" />
+
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/ic_launcher_foreground" />
+    </item>
+</layer-list>

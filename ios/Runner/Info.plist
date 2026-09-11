@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>My App</string>
+	<string>Medibook</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>my_app</string>
+	<string>medibook</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -53,18 +53,61 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- Portrait only (audit §3.4.3). Mirrors
+	     SystemChrome.setPreferredOrientations in app/bootstrap/app_bootstrap.dart;
+	     iOS honours this plist at launch, before any Dart runs, so it has to
+	     agree. Landscape/tablet layouts are a separate scope decision (§5.4). -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!-- ================================================================
+	     DEEP LINKS (audit §3.7.3)
+	     ================================================================
+	     1. Custom scheme: medibook://appointment/42
+	        Declared below. Always works, needs no server-side file, and is
+	        what push notifications use.
+
+	     2. Universal Links: https://medibook.app/appointment/42
+	        These are NOT declared in Info.plist — iOS reads them from the
+	        target's "Associated Domains" entitlement, which must be added in
+	        Xcode (Signing & Capabilities → Associated Domains) with:
+	            applinks:medibook.app
+	        and requires https://medibook.app/.well-known/apple-app-site-association
+	        to list this app's Team ID + bundle id
+	        (<TEAMID>.com.navoracloudsoft.medibook).
+	        The entitlement needs a provisioning profile, so it cannot be added
+	        from this build — see the report.
+
+	     Incoming URLs of either shape are mapped to in-app routes by
+	     AppRoutes.fromDeepLink (lib/app/router/app_routes.dart).
+	     ================================================================ -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.navoracloudsoft.medibook</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>medibook</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Lets the app check `tel:` before offering the emergency-dial control
+	     (CM-44 … CM-46), instead of showing a button that silently fails. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
 	</array>
 </dict>
 </plist>

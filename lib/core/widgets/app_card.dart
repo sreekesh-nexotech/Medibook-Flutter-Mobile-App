@@ -75,11 +75,14 @@ class AppCard extends StatelessWidget {
 
 /// Tap-down scale feedback for interactive cards.
 class _PressScale extends StatefulWidget {
-  const _PressScale({required this.child, this.onTap, this.scale = 0.98});
+  const _PressScale({required this.child, this.onTap});
 
   final Widget child;
   final VoidCallback? onTap;
-  final double scale;
+
+  /// The pressed scale. Fixed rather than a parameter — every card in the
+  /// design uses the same 0.98.
+  static const double scale = 0.98;
 
   @override
   State<_PressScale> createState() => _PressScaleState();
@@ -101,7 +104,7 @@ class _PressScaleState extends State<_PressScale> {
       onTapUp: (_) => _set(false),
       onTapCancel: () => _set(false),
       child: AnimatedScale(
-        scale: _down ? widget.scale : 1.0,
+        scale: _down ? _PressScale.scale : 1.0,
         duration: AppConstants.pressScale,
         curve: Curves.easeOut,
         child: widget.child,

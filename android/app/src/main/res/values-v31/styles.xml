@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ replaced the launch-window trick with a real SplashScreen API.
+  Without these attributes the system draws its own default (the launcher icon
+  on the theme's windowBackground), which is why an unbranded app flashes a
+  plain white or grey plate on cold start.
+-->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/medibook_splash_surface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

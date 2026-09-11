@@ -55,12 +55,7 @@ class EmergencyContactsStore extends Notifier<List<EmergencyContact>> {
     return contact;
   }
 
-  void patch(
-    String id, {
-    String? name,
-    String? relation,
-    String? phone,
-  }) {
+  void patch(String id, {String? name, String? relation, String? phone}) {
     state = [
       for (final c in state)
         if (c.id == id)
@@ -73,9 +68,7 @@ class EmergencyContactsStore extends Notifier<List<EmergencyContact>> {
   /// Make [id] the primary contact, demoting the previous one.
   void setPrimary(String id) {
     if (byId(id) == null) return;
-    state = [
-      for (final c in state) c.copyWith(isPrimary: c.id == id),
-    ];
+    state = [for (final c in state) c.copyWith(isPrimary: c.id == id)];
   }
 
   /// Remove a contact; promotes the first remaining one if the primary went.
@@ -159,9 +152,7 @@ class AddressesStore extends Notifier<List<Address>> {
   /// Make [id] the default address.
   void setDefault(String id) {
     if (byId(id) == null) return;
-    state = [
-      for (final a in state) a.copyWith(isDefault: a.id == id),
-    ];
+    state = [for (final a in state) a.copyWith(isDefault: a.id == id)];
   }
 
   /// Remove an address; promotes the first remaining one if the default went.
@@ -196,8 +187,9 @@ final primaryEmergencyContactProvider = Provider<EmergencyContact?>((ref) {
 
 /// The account's saved addresses. Not autoDispose — Profile and booking both
 /// read it.
-final addressesStoreProvider =
-    NotifierProvider<AddressesStore, List<Address>>(AddressesStore.new);
+final addressesStoreProvider = NotifierProvider<AddressesStore, List<Address>>(
+  AddressesStore.new,
+);
 
 /// The default address, or null when none is saved.
 final defaultAddressProvider = Provider<Address?>((ref) {

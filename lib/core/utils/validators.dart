@@ -130,7 +130,9 @@ abstract final class Validators {
   static String? dateOfBirth(DateTime? value, {DateTime? now}) {
     if (value == null) return 'Select a date of birth';
     final reference = now ?? DateTime.now();
-    if (value.isAfter(reference)) return 'Date of birth cannot be in the future';
+    if (value.isAfter(reference)) {
+      return 'Date of birth cannot be in the future';
+    }
     if (reference.difference(value).inDays > 120 * 366) {
       return 'Enter a valid date of birth';
     }
@@ -139,6 +141,5 @@ abstract final class Validators {
 
   /// Strips everything but digits — the normalisation [phone] and [pincode] use
   /// and the one `inputFormatters` should mirror.
-  static String digitsOf(String value) =>
-      value.replaceAll(RegExp(r'\D'), '');
+  static String digitsOf(String value) => value.replaceAll(RegExp(r'\D'), '');
 }

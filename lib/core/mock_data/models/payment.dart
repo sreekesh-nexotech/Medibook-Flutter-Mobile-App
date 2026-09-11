@@ -103,7 +103,9 @@ class PaymentRecord {
   /// "12 Aug 2026 · 10:32 AM", or null when unpaid.
   String? get paidAtLabel {
     final at = paidAt;
-    return at == null ? null : '${AppDates.dayMonthYear(at)} · ${AppDates.timeLabel(at)}';
+    return at == null
+        ? null
+        : '${AppDates.dayMonthYear(at)} · ${AppDates.timeLabel(at)}';
   }
 
   bool get hasRefund => refundAmount != null && refundStatus != null;

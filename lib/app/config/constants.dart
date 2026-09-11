@@ -17,6 +17,7 @@ abstract final class AppConstants {
   // ---- Animation timings (restrained; 150ms ease, no bounce) ----
   static const Duration screenIn = Duration(milliseconds: 220);
   static const Duration fadeIn = Duration(milliseconds: 220);
+
   /// The Booking Success screen fades in slightly slower (design: 0.25s).
   static const Duration successFadeIn = Duration(milliseconds: 250);
   static const Duration sheetUp = Duration(milliseconds: 250);

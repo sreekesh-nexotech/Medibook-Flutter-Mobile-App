@@ -12,6 +12,16 @@ import 'toast_controller.dart';
 /// (see `app/app.dart`). Renders the design's coal pill at 104px from the
 /// bottom with the `toastIn` rise animation; auto-dismiss is handled by
 /// [ToastController].
+///
+/// ## Accessibility (audit §3.3.1)
+///
+/// The toast is the app's **only** confirmation channel — "Appointment
+/// cancelled", "Saved", "Marked as read" are all announced here and nowhere
+/// else. Without a live region a screen-reader user gets no feedback at all
+/// that their action worked, so the pill is wrapped in
+/// `Semantics(liveRegion: true)` and is announced the moment it appears. The
+/// pill itself stays inside an [IgnorePointer], so the announcement costs the
+/// user no focus stop and nothing becomes tappable.
 class ToastHost extends ConsumerWidget {
   const ToastHost({super.key, required this.child});
 
@@ -30,7 +40,15 @@ class ToastHost extends ConsumerWidget {
             bottom: 104.h,
             child: IgnorePointer(
               child: Center(
-                child: _ToastPill(key: ValueKey(toast.tick), text: toast.text),
+                child: Semantics(
+                  liveRegion: true,
+                  container: true,
+                  label: toast.text,
+                  child: _ToastPill(
+                    key: ValueKey(toast.tick),
+                    text: toast.text,
+                  ),
+                ),
               ),
             ),
           ),

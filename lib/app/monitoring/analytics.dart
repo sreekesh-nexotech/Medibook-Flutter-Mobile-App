@@ -125,7 +125,10 @@ abstract final class Analytics {
   ]) {
     final safe = scrub(parameters);
     if (!enabled) {
-      AppLogger.debug('analytics (dropped) ${event.wireName} $safe', name: 'analytics');
+      AppLogger.debug(
+        'analytics (dropped) ${event.wireName} $safe',
+        name: 'analytics',
+      );
       return;
     }
     sink.logEvent(event.wireName, safe);
@@ -134,7 +137,10 @@ abstract final class Analytics {
   /// Record a screen view. Screen names are route paths from `AppRoutes`.
   static void screen(String screenName) {
     if (!enabled) {
-      AppLogger.debug('analytics (dropped) screen $screenName', name: 'analytics');
+      AppLogger.debug(
+        'analytics (dropped) screen $screenName',
+        name: 'analytics',
+      );
       return;
     }
     sink.setCurrentScreen(screenName);

@@ -39,12 +39,7 @@ abstract final class MedIcon {
 /// [size] is the raw design px; it is `.r`-scaled here so a square glyph scales
 /// uniformly. Unknown assets render nothing (the DS `Icon` returned `null`).
 class AppIcon extends StatelessWidget {
-  const AppIcon(
-    this.name, {
-    super.key,
-    this.size = 24,
-    this.color,
-  });
+  const AppIcon(this.name, {super.key, this.size = 24, this.color});
 
   final String name;
   final double size;
@@ -52,7 +47,8 @@ class AppIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolved = color ?? IconTheme.of(context).color ?? const Color(0xFF141414);
+    final resolved =
+        color ?? IconTheme.of(context).color ?? const Color(0xFF141414);
     final dimension = size.r;
     return SvgPicture.asset(
       'assets/icons/$name.svg',

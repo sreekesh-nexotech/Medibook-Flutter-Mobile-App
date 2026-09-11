@@ -70,10 +70,26 @@ abstract final class MedibookSeed {
 
   // ---- Departments ----
   static const List<Department> departments = [
-    Department(name: 'General', sub: 'Primary healthcare', iconName: MedIcon.records),
-    Department(name: 'Cardiology', sub: 'Heart specialists', iconName: MedIcon.star),
-    Department(name: 'Orthopedics', sub: 'Bone & joint care', iconName: MedIcon.hospital),
-    Department(name: 'Dermatology', sub: 'Skin specialists', iconName: MedIcon.eye),
+    Department(
+      name: 'General',
+      sub: 'Primary healthcare',
+      iconName: MedIcon.records,
+    ),
+    Department(
+      name: 'Cardiology',
+      sub: 'Heart specialists',
+      iconName: MedIcon.star,
+    ),
+    Department(
+      name: 'Orthopedics',
+      sub: 'Bone & joint care',
+      iconName: MedIcon.hospital,
+    ),
+    Department(
+      name: 'Dermatology',
+      sub: 'Skin specialists',
+      iconName: MedIcon.eye,
+    ),
   ];
 
   // ---- Hospitals (CM-11, CM-25) ----
@@ -270,13 +286,17 @@ abstract final class MedibookSeed {
     final target = AppDates.startOfDay(day);
     final offset = target.difference(AppDates.startOfDay(_now)).inDays;
 
+    // The deliberate "fully booked" day wins over the closed-day rules, so it
+    // exists no matter which weekday today happens to be — otherwise the state
+    // vanishes whenever day+2 lands on a Sunday.
+    final fullyBooked = offset == 2;
+
     // Closed: Sundays, and the deliberate "doctor not consulting" day.
-    if (target.weekday == DateTime.sunday || offset == 3) {
+    if (!fullyBooked && (target.weekday == DateTime.sunday || offset == 3)) {
       return DaySlots(day: target, slots: const []);
     }
 
     final seed = doctorId.codeUnits.fold<int>(0, (a, b) => a + b) + offset;
-    final fullyBooked = offset == 2;
 
     final slots = <Slot>[];
     for (var i = 0; i < _slotTimes.length; i++) {
@@ -1011,10 +1031,9 @@ clinical, contact the facility directly or call 108.
       doctors.where((d) => d.hospitalId == hospitalId).toList();
 
   /// Hospitals in [city], optionally narrowed to one [area].
-  static List<Hospital> hospitalsIn(String city, {String? area}) =>
-      hospitals
-          .where((h) => h.city == city && (area == null || h.area == area))
-          .toList();
+  static List<Hospital> hospitalsIn(String city, {String? area}) => hospitals
+      .where((h) => h.city == city && (area == null || h.area == area))
+      .toList();
 
   /// A patient by id, or null.
   static Patient? patientById(String id) {
@@ -1034,7 +1053,8 @@ clinical, contact the facility directly or call 108.
     PaymentRecord? fallback;
     for (final payment in payments) {
       if (payment.appointmentId != appointmentId) continue;
-      if (payment.status.isSettled || payment.status == PaymentStatus.refunded) {
+      if (payment.status.isSettled ||
+          payment.status == PaymentStatus.refunded) {
         return payment;
       }
       fallback ??= payment;

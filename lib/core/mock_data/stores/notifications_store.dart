@@ -58,9 +58,7 @@ class NotificationsStore extends Notifier<List<AppNotification>> {
   int markAllRead() {
     final changed = unreadCount;
     if (changed == 0) return 0;
-    state = [
-      for (final n in state) n.read ? n : n.copyWith(read: true),
-    ];
+    state = [for (final n in state) n.read ? n : n.copyWith(read: true)];
     return changed;
   }
 
@@ -95,8 +93,7 @@ final notificationsStoreProvider =
 /// Notifications newest-first — what the list renders.
 final sortedNotificationsProvider = Provider<List<AppNotification>>((ref) {
   final items = ref.watch(notificationsStoreProvider);
-  final sorted = [...items]
-    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  final sorted = [...items]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   return sorted;
 });
 

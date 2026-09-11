@@ -275,7 +275,8 @@ class UnimplementedApiClient with ApiClientVerbs implements ApiClient {
       name: 'network',
     );
     throw NoConnectionException(
-      message: 'No ApiClient implementation is installed for $request. '
+      message:
+          'No ApiClient implementation is installed for $request. '
           'Install one in app/bootstrap/app_bootstrap.dart.',
     );
   }

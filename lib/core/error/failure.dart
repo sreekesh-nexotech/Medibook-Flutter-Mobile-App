@@ -70,7 +70,8 @@ sealed class Failure implements Exception {
 /// No usable connection: request never left the device, or DNS/socket failed.
 class NetworkFailure extends Failure {
   const NetworkFailure({
-    super.userMessage = 'You appear to be offline. Check your connection and '
+    super.userMessage =
+        'You appear to be offline. Check your connection and '
         'try again.',
     super.debugMessage,
     super.cause,
@@ -92,7 +93,8 @@ class TimeoutFailure extends Failure {
 /// The server answered with 5xx, or with a body we could not make sense of.
 class ServerFailure extends Failure {
   const ServerFailure({
-    super.userMessage = "Something went wrong on our side. We're on it — "
+    super.userMessage =
+        "Something went wrong on our side. We're on it — "
         'please try again in a moment.',
     this.statusCode,
     super.debugMessage,
@@ -111,7 +113,8 @@ class ServerFailure extends Failure {
 /// failure usually gets logged rather than shown.
 class CacheFailure extends Failure {
   const CacheFailure({
-    super.userMessage = 'We could not read your saved data. Pull to refresh to '
+    super.userMessage =
+        'We could not read your saved data. Pull to refresh to '
         'load it again.',
     this.cacheKey,
     this.isCorruption = false,
@@ -131,7 +134,8 @@ class CacheFailure extends Failure {
 /// 404, or a valid response that contained none of the requested resource.
 class NotFoundFailure extends Failure {
   const NotFoundFailure({
-    super.userMessage = "We couldn't find what you were looking for. It may "
+    super.userMessage =
+        "We couldn't find what you were looking for. It may "
         'have been moved or removed.',
     this.resource,
     super.debugMessage,

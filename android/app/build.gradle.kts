@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.my_app"
+    namespace = "com.navoracloudsoft.medibook"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +15,10 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.my_app"
+        // Production application id. Must match the Kotlin package of
+        // MainActivity (android/app/src/main/kotlin/com/navoracloudsoft/medibook)
+        // and the iOS PRODUCT_BUNDLE_IDENTIFIER.
+        applicationId = "com.navoracloudsoft.medibook"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

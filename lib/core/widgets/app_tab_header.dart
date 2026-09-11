@@ -33,7 +33,7 @@ class AppTabHeader extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );

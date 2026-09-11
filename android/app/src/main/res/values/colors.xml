@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Native-side brand colours.
+
+  These mirror lib/app/theme/colors.dart and exist only because the Android
+  launch window is painted before any Dart runs. Keep them in step with the
+  Dart tokens:
+    brand         = AppColors.brand        (primary600)
+    splashSurface = AppColors.surface
+-->
+<resources>
+    <color name="medibook_brand">#FF1D3557</color>
+    <color name="medibook_brand_deep">#FF0A172A</color>
+    <color name="medibook_splash_surface">#FFFFFFFF</color>
+</resources>

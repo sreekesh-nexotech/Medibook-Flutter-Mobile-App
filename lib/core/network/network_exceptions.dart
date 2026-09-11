@@ -114,14 +114,16 @@ abstract final class NetworkExceptions {
           stackTrace: stackTrace,
         ),
         ResponseFormatException() => ServerFailure(
-          userMessage: 'We could not read the response from our server. '
+          userMessage:
+              'We could not read the response from our server. '
               'Please try again.',
           debugMessage: error.message,
           cause: error.cause ?? error,
           stackTrace: stackTrace,
         ),
         TlsException() => NetworkFailure(
-          userMessage: 'We could not establish a secure connection. Please '
+          userMessage:
+              'We could not establish a secure connection. Please '
               'try again on a trusted network.',
           debugMessage: error.message,
           cause: error.cause ?? error,
@@ -140,7 +142,8 @@ abstract final class NetworkExceptions {
     }
     if (error is HandshakeException) {
       return NetworkFailure(
-        userMessage: 'We could not establish a secure connection. Please try '
+        userMessage:
+            'We could not establish a secure connection. Please try '
             'again on a trusted network.',
         debugMessage: error.message,
         cause: error,
@@ -156,7 +159,8 @@ abstract final class NetworkExceptions {
     }
     if (error is FormatException) {
       return ServerFailure(
-        userMessage: 'We could not read the response from our server. Please '
+        userMessage:
+            'We could not read the response from our server. Please '
             'try again.',
         debugMessage: error.message,
         cause: error,
@@ -175,8 +179,9 @@ abstract final class NetworkExceptions {
     HttpStatusException error,
     StackTrace? stackTrace,
   ) {
-    final debug = 'HTTP ${error.statusCode}${error.message == null ? '' : ' — '
-        '${error.message}'}';
+    final debug =
+        'HTTP ${error.statusCode}${error.message == null ? '' : ' — '
+                  '${error.message}'}';
     return switch (error.statusCode) {
       400 || 422 => ValidationFailure(
         fieldErrors: error.fieldErrors,
@@ -241,7 +246,6 @@ abstract final class NetworkExceptions {
 
   /// Exponential backoff for attempt [attempt] (1-based): 0s, 2s, 4s, 8s —
   /// the schedule the cache spec fixes at a 15s total budget.
-  static Duration backoffFor(int attempt) => attempt <= 1
-      ? Duration.zero
-      : Duration(seconds: 1 << (attempt - 1));
+  static Duration backoffFor(int attempt) =>
+      attempt <= 1 ? Duration.zero : Duration(seconds: 1 << (attempt - 1));
 }

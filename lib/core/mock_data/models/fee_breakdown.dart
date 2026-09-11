@@ -34,8 +34,9 @@ class FeeBreakdown {
     Money discount = Money.zero,
     String? couponCode,
   }) {
-    final cappedDiscount =
-        discount > consultationFee ? consultationFee : discount;
+    final cappedDiscount = discount > consultationFee
+        ? consultationFee
+        : discount;
     final taxable = consultationFee.minusFloored(cappedDiscount);
     final tax = taxable.percent(taxPercent);
     final total = taxable + tax + convenienceFee;
@@ -88,11 +89,7 @@ class FeeBreakdown {
   /// The rows a summary table renders, in order. Signed: [discount] is shown
   /// as a negative line.
   List<({String label, Money amount, bool isDiscount})> get lines => [
-    (
-      label: 'Consultation Fee',
-      amount: consultationFee,
-      isDiscount: false,
-    ),
+    (label: 'Consultation Fee', amount: consultationFee, isDiscount: false),
     if (hasDiscount)
       (
         label: couponCode == null ? 'Discount' : 'Discount ($couponCode)',
@@ -101,11 +98,7 @@ class FeeBreakdown {
       ),
     (label: taxLabel, amount: taxAmount, isDiscount: false),
     if (!convenienceFee.isZero)
-      (
-        label: 'Convenience Fee',
-        amount: convenienceFee,
-        isDiscount: false,
-      ),
+      (label: 'Convenience Fee', amount: convenienceFee, isDiscount: false),
   ];
 
   /// Re-apply a coupon to the same fee. Returns a fresh, consistent breakdown.

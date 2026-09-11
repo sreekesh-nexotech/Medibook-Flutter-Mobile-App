@@ -57,6 +57,19 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
+  # NOTE: flutter_launcher_icons and flutter_native_splash are NOT installed.
+  # The Android mipmap set, the adaptive icon, the iOS AppIcon.appiconset and
+  # the launch images in this repo were generated directly from the brand mark
+  # and are committed, so no build step is required. The `flutter_launcher_icons`
+  # and `flutter_native_splash` blocks below are kept fully configured so that
+  # regenerating them is a two-command job when the brand mark changes:
+  #
+  #   dart pub add --dev flutter_launcher_icons flutter_native_splash
+  #   dart run flutter_launcher_icons && dart run flutter_native_splash:create
+  #
+  # Add them as dev dependencies only when you actually need to regenerate;
+  # leaving them out keeps the dependency surface of this build minimal.
+
 flutter:
   uses-material-design: true
 
@@ -78,3 +91,58 @@ flutter:
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter-Regular.ttf
+
+# ============================================================================
+# LAUNCHER ICON CONFIG (flutter_launcher_icons)
+# ----------------------------------------------------------------------------
+# Source of truth for regenerating the icon sets. The committed rasters already
+# match this configuration; see the note in dev_dependencies above.
+# ============================================================================
+flutter_launcher_icons:
+  image_path: "assets/images/brand_mark.png"
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  min_sdk_android: 21
+
+  # Adaptive icon (API 26+): brand-navy plate, white glyph foreground.
+  adaptive_icon_background: "#1D3557"
+  adaptive_icon_foreground: "assets/images/brand_mark_foreground.png"
+  adaptive_icon_monochrome: "assets/images/brand_mark_foreground.png"
+
+  web:
+    generate: false
+  windows:
+    generate: false
+  macos:
+    generate: false
+
+# ============================================================================
+# NATIVE SPLASH CONFIG (flutter_native_splash)
+# ----------------------------------------------------------------------------
+# Matches the hand-written launch_background.xml / LaunchScreen.storyboard
+# treatment already committed, so regenerating produces the same result rather
+# than overwriting it with something different.
+# ============================================================================
+flutter_native_splash:
+  # AppColors.surface — the app's own first frame is this colour, so there is no
+  # flash between the splash and the UI.
+  color: "#FFFFFF"
+  image: "assets/images/brand_mark.png"
+
+  # A device in dark mode would otherwise flash white; brand navy is the right
+  # neutral there. Medibook itself has no dark theme.
+  color_dark: "#1D3557"
+  image_dark: "assets/images/brand_mark_foreground.png"
+
+  android: true
+  ios: true
+  web: false
+
+  android_12:
+    # Android 12+ uses the SplashScreen API; the icon is masked to a circle, so
+    # the padded foreground is used rather than the full plate.
+    image: "assets/images/brand_mark_foreground.png"
+    color: "#FFFFFF"
+    image_dark: "assets/images/brand_mark_foreground.png"
+    color_dark: "#1D3557"

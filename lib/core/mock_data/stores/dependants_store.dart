@@ -18,10 +18,8 @@ class DependantsStore extends Notifier<List<Patient>> {
   List<Patient> build() => MedibookSeed.patients;
 
   /// The account holder.
-  Patient get self => state.firstWhere(
-    (p) => p.isSelf,
-    orElse: () => state.first,
-  );
+  Patient get self =>
+      state.firstWhere((p) => p.isSelf, orElse: () => state.first);
 
   /// Everyone except the account holder.
   List<Patient> get dependants => state.where((p) => !p.isSelf).toList();
@@ -125,12 +123,13 @@ final dependantsOnlyProvider = Provider<List<Patient>>((ref) {
 
 /// One patient by id. autoDispose family — ids are minted at runtime, so keyed
 /// caches must not outlive their watchers.
-final patientByIdProvider = Provider.autoDispose.family<Patient?, String>(
-  (ref, id) {
-    final patients = ref.watch(dependantsStoreProvider);
-    for (final patient in patients) {
-      if (patient.id == id) return patient;
-    }
-    return null;
-  },
-);
+final patientByIdProvider = Provider.autoDispose.family<Patient?, String>((
+  ref,
+  id,
+) {
+  final patients = ref.watch(dependantsStoreProvider);
+  for (final patient in patients) {
+    if (patient.id == id) return patient;
+  }
+  return null;
+});
