@@ -21,6 +21,10 @@
 abstract final class AppRoutes {
   AppRoutes._();
 
+  /// Shown while [AuthUnknown] is being resolved from local storage, so a
+  /// returning user never flashes the sign-in screen before landing on Home.
+  static const String splash = '/splash';
+
   // ---- Auth ----
   static const String login = '/login';
   static const String signup = '/signup';

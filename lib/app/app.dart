@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/widgets/toast/toast_host.dart';
+import '../features/auth/application/providers/auth_provider.dart';
 import 'config/constants.dart';
 import 'localization/l10n.dart';
 import 'router/app_router.dart';
@@ -12,16 +14,28 @@ import 'theme/theme.dart';
 /// assembles the `MaterialApp.router`, wires the localization delegates, and
 /// mounts the global [ToastHost] once above the router so toasts float over
 /// every screen.
-class MedibookApp extends StatefulWidget {
+class MedibookApp extends ConsumerStatefulWidget {
   const MedibookApp({super.key});
 
   @override
-  State<MedibookApp> createState() => _MedibookAppState();
+  ConsumerState<MedibookApp> createState() => _MedibookAppState();
 }
 
-class _MedibookAppState extends State<MedibookApp> {
-  // Built once — a GoRouter must not be recreated on every rebuild.
-  final GoRouter _router = buildAppRouter();
+class _MedibookAppState extends ConsumerState<MedibookApp> {
+  /// Built once — a GoRouter must not be recreated on every rebuild. It needs
+  /// `ref` for the sign-in guard, so it is created in [initState] rather than
+  /// as a field initialiser.
+  late final GoRouter _router = buildAppRouter(ref);
+
+  @override
+  void initState() {
+    super.initState();
+    // Resolves `AuthUnknown` from local storage. Until this completes the
+    // guard holds on the splash, so a returning user never flashes the
+    // sign-in screen — and without it the state would never leave
+    // `AuthUnknown` and every route would stay behind the splash.
+    Future.microtask(() => ref.read(authProvider.notifier).restore());
+  }
 
   @override
   Widget build(BuildContext context) {
