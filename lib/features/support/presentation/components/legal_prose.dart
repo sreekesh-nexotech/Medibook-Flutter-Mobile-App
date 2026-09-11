@@ -224,9 +224,7 @@ class _ProseBlockView extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
               ),
-              Expanded(
-                child: Text.rich(_span(_bodyStyle), style: _bodyStyle),
-              ),
+              Expanded(child: Text.rich(_span(_bodyStyle), style: _bodyStyle)),
             ],
           ),
         );
@@ -258,7 +256,11 @@ class _ProseBlockView extends StatelessWidget {
 /// The "Version 2026.1 · Updated 28 Jul 2026" line above a legal document, and
 /// the note that the copy is placeholder text.
 class LegalProseMeta extends StatelessWidget {
-  const LegalProseMeta({super.key, required this.version, required this.updated});
+  const LegalProseMeta({
+    super.key,
+    required this.version,
+    required this.updated,
+  });
 
   final String version;
 
@@ -281,7 +283,10 @@ class LegalProseMeta extends StatelessWidget {
       ),
       child: Text(
         'Version $version · Updated $updated',
-        style: AppText.poppins(size: AppFontSize.xs, color: AppColors.textMuted),
+        style: AppText.poppins(
+          size: AppFontSize.xs,
+          color: AppColors.textMuted,
+        ),
       ),
     );
   }

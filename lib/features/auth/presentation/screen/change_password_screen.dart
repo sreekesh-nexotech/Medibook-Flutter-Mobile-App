@@ -104,9 +104,16 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     _form.reset();
   }
 
+  /// Leaves the form.
+  ///
+  /// `Navigator.maybePop`, **not** `context.pop()`: go_router's `pop` calls
+  /// `NavigatorState.pop` directly and so bypasses the `PopScope` that
+  /// [AppUnsavedChangesGuard] installs. Using it here would mean the system
+  /// back gesture warns about unsaved work while this screen's own Back and
+  /// Cancel silently discard it.
   void _close() {
     if (context.canPop()) {
-      context.pop();
+      Navigator.maybePop(context);
     } else {
       context.go(AppRoutes.profile);
     }

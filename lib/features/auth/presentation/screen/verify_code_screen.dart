@@ -17,6 +17,7 @@ import '../components/otp_box.dart';
 import '../components/screen_fade_rise.dart';
 import '../controllers/auth_flow_draft.dart';
 import '../controllers/verify_controller.dart';
+import '../../application/providers/auth_provider.dart';
 import '../controllers/verify_request.dart';
 
 /// Verify Code (`/verify`) — the one code-entry screen, now serving three
@@ -142,6 +143,22 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
         context.go(AppRoutes.home);
       case VerifyPurpose.passwordReset:
         context.go(AppRoutes.reset);
+      case VerifyPurpose.phoneChange:
+        // CM-47. The only purpose that runs on an existing session, so the
+        // number is committed here and the session is left alone — see
+        // `VerifyRequest.signsIn`.
+        final user = ref.read(authProvider).user;
+        if (user != null) {
+          ref
+              .read(authProvider.notifier)
+              .updateUser(
+                user.copyWith(phone: request.destination, phoneVerified: true),
+              );
+        }
+        ref
+            .read(toastControllerProvider.notifier)
+            .show('Mobile number updated');
+        context.go(AppRoutes.profileEdit);
     }
   }
 

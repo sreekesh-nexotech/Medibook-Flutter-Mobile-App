@@ -18,7 +18,13 @@ enum VerifyPurpose {
   mobileLogin('login'),
 
   /// CM-06 — the code step of a password reset, by email or by SMS.
-  passwordReset('reset');
+  passwordReset('reset'),
+
+  /// CM-47 — confirming a NEW mobile number before it replaces the old one.
+  ///
+  /// The only purpose that runs while already signed in, so it must not
+  /// re-mint the session: see [signsIn].
+  phoneChange('phone-change');
 
   const VerifyPurpose(this.slug);
 
@@ -103,6 +109,7 @@ class VerifyRequest {
     VerifyPurpose.signup => 'Verify Mobile',
     VerifyPurpose.mobileLogin => 'Verify Mobile',
     VerifyPurpose.passwordReset => 'Verify Code',
+    VerifyPurpose.phoneChange => 'Verify New Number',
   };
 
   /// The sentence above the code boxes, which ends with [destination].
@@ -112,6 +119,9 @@ class VerifyRequest {
           'We sent a 4-digit code to ',
     VerifyPurpose.mobileLogin => 'We sent a 4-digit code to ',
     VerifyPurpose.passwordReset => 'We sent a 4-digit code to ',
+    VerifyPurpose.phoneChange =>
+      'Confirm your new mobile number to make the change. '
+          'We sent a 4-digit code to ',
   };
 
   /// What the code was sent to, in words — for the resend toast and the
@@ -124,6 +134,7 @@ class VerifyRequest {
     VerifyPurpose.signup => 'Verify & Create Account',
     VerifyPurpose.mobileLogin => 'Verify & Log In',
     VerifyPurpose.passwordReset => 'Verify',
+    VerifyPurpose.phoneChange => 'Verify & Update Number',
   };
 
   /// Where the back arrow goes — the screen that sent the code.
@@ -131,9 +142,16 @@ class VerifyRequest {
     VerifyPurpose.signup => AppRoutes.signup,
     VerifyPurpose.mobileLogin => AppRoutes.login,
     VerifyPurpose.passwordReset => AppRoutes.forgot,
+    VerifyPurpose.phoneChange => AppRoutes.profileEdit,
   };
 
   /// True when a successful code signs the user in rather than unlocking the
-  /// next step of a reset.
-  bool get signsIn => purpose != VerifyPurpose.passwordReset;
+  /// next step of a reset or confirming a detail on an existing session.
+  ///
+  /// [VerifyPurpose.phoneChange] is deliberately false: the user is already
+  /// signed in and re-minting the session would be a silent sign-out and back
+  /// in again.
+  bool get signsIn =>
+      purpose != VerifyPurpose.passwordReset &&
+      purpose != VerifyPurpose.phoneChange;
 }

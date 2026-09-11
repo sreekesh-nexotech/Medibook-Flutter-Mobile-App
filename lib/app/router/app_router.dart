@@ -40,7 +40,18 @@ import '../../features/appointments/presentation/screen/reschedule_screen.dart';
 import '../../features/records/presentation/screen/document_detail_screen.dart';
 import '../../features/records/presentation/screen/document_upload_screen.dart';
 import '../../features/records/presentation/screen/records_screen.dart';
+import '../../features/insurance/presentation/screen/insurance_add_screen.dart';
+import '../../features/insurance/presentation/screen/insurance_detail_screen.dart';
+import '../../features/insurance/presentation/screen/insurance_screen.dart';
+import '../../features/profile/presentation/screen/addresses_screen.dart';
+import '../../features/profile/presentation/screen/dependant_edit_screen.dart';
+import '../../features/profile/presentation/screen/dependants_screen.dart';
+import '../../features/profile/presentation/screen/emergency_contacts_screen.dart';
+import '../../features/profile/presentation/screen/profile_edit_screen.dart';
 import '../../features/profile/presentation/screen/profile_screen.dart';
+import '../../features/support/presentation/screen/faq_screen.dart';
+import '../../features/support/presentation/screen/legal_document_screen.dart';
+import '../../features/support/presentation/screen/support_screen.dart';
 
 import 'app_routes.dart';
 
@@ -247,6 +258,67 @@ GoRouter buildAppRouter(WidgetRef ref) {
         path: AppRoutes.ambulance,
         builder: (_, _) => const AmbulanceScreen(),
       ),
+
+      // ---- Profile (CM-47, CM-49, CM-50) ----
+      GoRoute(
+        path: AppRoutes.profileEdit,
+        builder: (_, _) => const ProfileEditScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profileEmergency,
+        builder: (_, _) => const EmergencyContactsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profileAddress,
+        builder: (_, _) => const AddressesScreen(),
+      ),
+
+      // ---- Dependants (CM-16 / CM-48) ----
+      // `/dependants/edit` before the bare list is unnecessary (no param
+      // route here), but the edit screen reads `?id=` itself, so one row
+      // serves both add and edit.
+      GoRoute(
+        path: AppRoutes.dependants,
+        builder: (_, _) => const DependantsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.dependantEdit,
+        builder: (context, state) =>
+            DependantEditScreen(id: state.uri.queryParameters['id']),
+      ),
+
+      // ---- Insurance locker (CM-37..CM-39) ----
+      // `/insurance/add` is registered BEFORE `/insurance/:id`, or the param
+      // route swallows it and tries to open a policy called "add".
+      GoRoute(
+        path: AppRoutes.insurance,
+        builder: (_, _) => const InsuranceScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.insuranceAdd,
+        builder: (_, _) => const InsuranceAddScreen(),
+      ),
+      GoRoute(
+        path: '${AppRoutes.insurance}/:id',
+        builder: (context, state) =>
+            InsuranceDetailScreen(id: state.pathParameters['id']),
+      ),
+
+      // ---- Legal, FAQ and support (CM-02 / CM-52) ----
+      // Public: the sign-up consent checkbox links straight to the legal
+      // documents, which a visitor has to be able to read before signing up.
+      GoRoute(
+        path: '${AppRoutes.legal}/:slug',
+        builder: (context, state) =>
+            LegalDocumentScreen(slug: state.pathParameters['slug']),
+      ),
+      GoRoute(path: AppRoutes.faq, builder: (_, _) => const FaqScreen()),
+      GoRoute(
+        path: AppRoutes.support,
+        builder: (_, _) => const SupportScreen(),
+      ),
+      // Help and Support are the same destination; both constants resolve.
+      GoRoute(path: AppRoutes.help, builder: (_, _) => const SupportScreen()),
 
       // ---- Documents library (CM-32..CM-36) ----
       // `/documents/upload` is registered BEFORE `/documents/:id`, or the

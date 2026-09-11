@@ -12,11 +12,7 @@ import '../../../../core/widgets/app_card.dart';
 /// Pure presentation — the screen passes the [rows] (from `profileInfoProvider`)
 /// and the [onEdit] callback that fires the stub toast.
 class ProfileInfoCard extends StatelessWidget {
-  const ProfileInfoCard({
-    super.key,
-    required this.rows,
-    required this.onEdit,
-  });
+  const ProfileInfoCard({super.key, required this.rows, required this.onEdit});
 
   final List<({String key, String value})> rows;
   final VoidCallback onEdit;

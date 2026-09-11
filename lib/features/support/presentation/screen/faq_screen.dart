@@ -97,7 +97,9 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                   0,
                 ),
                 child: Text(
-                  matches == 1 ? '1 answer matched' : '$matches answers matched',
+                  matches == 1
+                      ? '1 answer matched'
+                      : '$matches answers matched',
                   style: AppText.poppins(
                     size: AppFontSize.xs,
                     color: AppColors.textMuted,
@@ -175,7 +177,9 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                     ),
                   SizedBox(height: AppSpacing.x3.h),
                 ],
-                _StillStuckCard(onContact: () => context.push(AppRoutes.support)),
+                _StillStuckCard(
+                  onContact: () => context.push(AppRoutes.support),
+                ),
               ],
             ),
     );
