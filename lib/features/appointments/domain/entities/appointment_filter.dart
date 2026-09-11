@@ -188,9 +188,9 @@ class AppointmentFilter {
         doctorId: doctorId,
         hospitalId: hospitalId,
         patientId: patientId,
-        statuses: status == null
-            ? const <AppointmentStatusView>{}
-            : {...statuses}..remove(status),
+        statuses:
+            status == null ? const <AppointmentStatusView>{} : {...statuses}
+              ..remove(status),
       ),
     };
   }

@@ -9,28 +9,48 @@ import '../../../../core/mock_data/models/doctor.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
-import '../../../../core/widgets/app_status_pill.dart';
 import '../../../../core/widgets/status_style.dart';
+import '../../domain/entities/appointment_status_view.dart';
+import '../../domain/entities/appointment_token.dart';
+import 'status_view_pill.dart';
 
-/// A single appointment row on the Appointments list. Pure data + callback →
-/// [StatelessWidget]. Top row: 48px avatar, doctor name, `spec · patient first
-/// name`, status pill. Hairline. Bottom row: calendar + date, clock + time, and
-/// the token pill.
+/// A single appointment row on the Appointments list and in search results.
+///
+/// Top row: 48px avatar, doctor name, `spec · patient first name`, the
+/// canonical status pill. Hairline. Bottom row: calendar + date, clock + time,
+/// and the token pill.
+///
+/// [status] is passed in rather than read off `appointment.status`: the stored
+/// field only knows three states, and the list must show all five
+/// (`CANONICAL_MASTER_DATA` §4). The caller resolves it once — see
+/// `AppointmentRow`.
 class AppointmentCard extends StatelessWidget {
   const AppointmentCard({
     super.key,
     required this.appointment,
     required this.doctor,
+    required this.status,
     required this.onTap,
+    this.hospitalName,
   });
 
   final Appointment appointment;
   final Doctor doctor;
+
+  /// The canonical status (Scheduled / In Queue / Completed / Cancelled /
+  /// No-show).
+  final AppointmentStatusView status;
+
+  /// Shown under the doctor when given — search results span hospitals, so the
+  /// facility is part of telling two rows apart.
+  final String? hospitalName;
+
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final patientFirst = appointment.patient.split(' ').first;
+    final facility = hospitalName;
     return AppCard(
       onTap: onTap,
       child: Column(
@@ -61,8 +81,8 @@ class AppointmentCard extends StatelessWidget {
                     SizedBox(height: 1.h),
                     Text(
                       '${doctor.spec} · $patientFirst',
-                      // The prototype lets this wrap (2 lines for the longest
-                      // spec) rather than ellipsize.
+                      // Lets this wrap (2 lines for the longest spec) rather
+                      // than ellipsize, so it survives 1.3x text scaling.
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.poppins(
@@ -70,14 +90,23 @@ class AppointmentCard extends StatelessWidget {
                         color: AppColors.textMuted,
                       ),
                     ),
+                    if (facility != null) ...[
+                      SizedBox(height: 2.h),
+                      Text(
+                        facility,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.poppins(
+                          size: 11,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
               SizedBox(width: 10.w),
-              AppStatusPill(
-                label: appointment.status.label,
-                colors: AppStatusStyle.appointment(appointment.status),
-              ),
+              AppointmentStatusViewPill(status: status),
             ],
           ),
           Container(
@@ -91,15 +120,23 @@ class AppointmentCard extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _MetaItem(icon: MedIcon.calendar, label: appointment.date),
-                    SizedBox(width: 14.w),
-                    _MetaItem(icon: MedIcon.clock, label: appointment.time),
-                  ],
+                Flexible(
+                  child: Wrap(
+                    spacing: 14.w,
+                    runSpacing: 4.h,
+                    children: [
+                      _MetaItem(
+                        icon: MedIcon.calendar,
+                        label: appointment.date,
+                      ),
+                      _MetaItem(icon: MedIcon.clock, label: appointment.time),
+                    ],
+                  ),
                 ),
-                _TokenPill(label: appointment.token),
+                SizedBox(width: 8.w),
+                _TokenPill(
+                  label: AppointmentToken.normalize(appointment.token),
+                ),
               ],
             ),
           ),

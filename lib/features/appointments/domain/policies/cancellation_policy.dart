@@ -271,10 +271,7 @@ abstract final class CancellationPolicy {
         RefundTier.nothingPaid,
         Money.zero,
       ),
-      (_, PolicyWindow.beforeCutoff, final amount) => (
-        RefundTier.full,
-        amount,
-      ),
+      (_, PolicyWindow.beforeCutoff, final amount) => (RefundTier.full, amount),
       (_, PolicyWindow.insideCutoff, final amount) => (
         RefundTier.partial,
         amount.percent(lateCancellationRefundPercent),

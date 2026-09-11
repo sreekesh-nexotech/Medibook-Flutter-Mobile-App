@@ -57,7 +57,8 @@ class AppointmentActionResult {
 /// The screens own none of this logic: they show the policy, ask for
 /// confirmation, and call one method. That is what keeps the cut-off, the
 /// refund arithmetic and the honest reporting in a single place.
-class AppointmentActionsController extends StateNotifier<AppointmentActionState> {
+class AppointmentActionsController
+    extends StateNotifier<AppointmentActionState> {
   AppointmentActionsController(this._ref, this._appointmentId)
     : super(const AppointmentActionState());
 
@@ -102,11 +103,13 @@ class AppointmentActionsController extends StateNotifier<AppointmentActionState>
       // report exactly that rather than a refund the ledger never accepted.
       final refunded =
           payment != null &&
-          _ref.read(paymentsStoreProvider.notifier).refund(
-            payment.id,
-            amount: outcome.refund,
-            status: RefundStatus.requested,
-          );
+          _ref
+              .read(paymentsStoreProvider.notifier)
+              .refund(
+                payment.id,
+                amount: outcome.refund,
+                status: RefundStatus.requested,
+              );
 
       if (!refunded) {
         return const AppointmentActionResult(

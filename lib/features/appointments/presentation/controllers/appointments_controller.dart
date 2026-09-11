@@ -169,10 +169,13 @@ final appointmentRowsProvider = Provider.autoDispose<List<AppointmentRow>>((
   final items = ref.watch(
     appointmentsControllerProvider.select((s) => s.items),
   );
-  final rows = <AppointmentRow>[
-    for (final appointment in items)
-      _rowFor(ref, appointment),
-  ]..sort((a, b) => b.appointment.scheduledAt.compareTo(a.appointment.scheduledAt));
+  final rows =
+      <AppointmentRow>[
+        for (final appointment in items) _rowFor(ref, appointment),
+      ]..sort(
+        (a, b) =>
+            b.appointment.scheduledAt.compareTo(a.appointment.scheduledAt),
+      );
   return rows;
 });
 
@@ -222,15 +225,16 @@ final firstUpcomingAppointmentProvider = Provider<Appointment?>((ref) {
 /// A single appointment by id (detail / reschedule / receipt). autoDispose
 /// family — the id space is unbounded (new bookings mint b26, b27, …), so keyed
 /// caches must not outlive their watchers.
-final appointmentByIdProvider = Provider.autoDispose.family<Appointment?, String>((ref, id) {
-  final items = ref.watch(
-    appointmentsControllerProvider.select((s) => s.items),
-  );
-  for (final appointment in items) {
-    if (appointment.id == id) return appointment;
-  }
-  return null;
-});
+final appointmentByIdProvider = Provider.autoDispose
+    .family<Appointment?, String>((ref, id) {
+      final items = ref.watch(
+        appointmentsControllerProvider.select((s) => s.items),
+      );
+      for (final appointment in items) {
+        if (appointment.id == id) return appointment;
+      }
+      return null;
+    });
 
 /// One resolved row by appointment id, or null when the id is unknown.
 final appointmentRowProvider = Provider.autoDispose
