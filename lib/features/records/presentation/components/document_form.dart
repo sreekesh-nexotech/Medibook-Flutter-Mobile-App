@@ -7,6 +7,8 @@ import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/mock_data/models/medical_record.dart';
 import '../../../../core/mock_data/seed_providers.dart';
+import '../../../../core/mock_data/stores/dependants_store.dart';
+import '../../../../core/mock_data/stores/documents_store.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_date_picker_sheet.dart';
@@ -174,11 +176,18 @@ class _DocumentFormState extends ConsumerState<DocumentForm> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(documentFormProvider(widget.documentId));
+    final documentId = widget.documentId;
+    final state = ref.watch(documentFormProvider(documentId));
     final patient = ref.watch(patientByIdProvider(state.patientId));
-    final linked = state.appointmentId == null
+    final appointmentId = state.appointmentId;
+    final linked = appointmentId == null
         ? null
-        : ref.watch(linkableAppointmentByIdProvider(state.appointmentId!));
+        : ref.watch(linkableAppointmentByIdProvider(appointmentId));
+    // In edit mode the file (if any) comes from the stored document, which is
+    // the only thing that knows about it.
+    final existing = documentId == null
+        ? null
+        : ref.watch(documentByIdProvider(documentId));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -246,7 +255,8 @@ class _DocumentFormState extends ConsumerState<DocumentForm> {
           helperText: _isEditing
               ? 'The appointment link is fixed once a document is saved'
               : 'Attach it to a visit so it shows on that appointment',
-          semanticLabel: 'Linked appointment: '
+          semanticLabel:
+              'Linked appointment: '
               '${linked?.label ?? state.appointmentLabel ?? 'not linked'}',
           onTap: () => _pickAppointment(state.appointmentId),
         ),
@@ -264,18 +274,11 @@ class _DocumentFormState extends ConsumerState<DocumentForm> {
         ),
         SizedBox(height: 20.h),
         _FileRow(
-          fileName: state.fileName,
-          fileSizeLabel: _fileSizeLabel(state.fileSizeBytes),
+          fileName: existing?.fileName ?? '',
+          fileSizeLabel: existing?.fileSizeLabel ?? '—',
         ),
       ],
     );
-  }
-
-  String _fileSizeLabel(int bytes) {
-    if (bytes <= 0) return '—';
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 

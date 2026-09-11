@@ -209,9 +209,9 @@ class DocumentFormController extends StateNotifier<DocumentFormState> {
 
     state = state.copyWith(isSaving: true);
     final store = _ref.read(documentsStoreProvider.notifier);
-    final patient = _ref.read(dependantsStoreProvider.notifier).byId(
-      state.patientId,
-    );
+    final patient = _ref
+        .read(dependantsStoreProvider.notifier)
+        .byId(state.patientId);
     final title = state.title.trim();
     final notes = state.notes.trim();
 

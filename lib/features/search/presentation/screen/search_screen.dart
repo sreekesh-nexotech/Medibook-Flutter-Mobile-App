@@ -10,17 +10,35 @@ import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/mock_data/models/department.dart';
 import '../../../../core/mock_data/models/doctor.dart';
-import '../../../../core/mock_data/seed_providers.dart';
+import '../../../../core/mock_data/models/hospital.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
+import '../../../../core/widgets/app_icon_button.dart';
 import '../../../../core/widgets/app_inner_header.dart';
+import '../../../../core/widgets/states/app_empty_view.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
 import '../components/search_result_row.dart';
 import '../controllers/search_controller.dart';
 
-/// Search (`/search`, pushed). Live-filters departments and doctors from the
-/// single [searchQueryProvider]. The input autofocuses shortly after the screen
-/// settles (`AppConstants.searchAutoFocusDelay`). Enters with `screenIn`.
+/// Search (`/search`, pushed).
+///
+/// Covers **departments, doctors and hospitals** — the audit finding was
+/// *"Search covers departments and doctors only"*, which left the whole
+/// hospital directory (four facilities across two cities) unreachable by name,
+/// area or city. Results are grouped by kind, each group labelled with its
+/// count, because a department, a doctor and a facility lead to three
+/// different next steps.
+///
+/// Input is debounced by [AppConstants.searchDebounce] through
+/// [searchProvider]: the field updates instantly, the lists re-filter once the
+/// typing settles, and a quiet loader covers the gap so a half-typed word never
+/// reads as "no results".
+///
+/// Searching **your own appointments** is a different job with a different
+/// haystack (booking reference, token, patient) and lives on the appointments
+/// feature's own screen — this screen links across to it rather than
+/// duplicating it.
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
@@ -35,9 +53,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    // Autofocus after the push animation settles (matches the prototype's
-    // ~260ms delay), not immediately, so the keyboard doesn't fight the enter
-    // transition.
+    // Autofocus after the push animation settles, not immediately, so the
+    // keyboard doesn't fight the enter transition.
     Future.delayed(AppConstants.searchAutoFocusDelay, () {
       if (mounted) _focusNode.requestFocus();
     });
@@ -58,33 +75,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
+  void _clear() {
+    _controller.clear();
+    ref.read(searchProvider.notifier).clear();
+    _focusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final rawQuery = ref.watch(searchQueryProvider);
-    final query = rawQuery.trim().toLowerCase();
-    final departments = ref.watch(departmentsProvider);
-    final doctors = ref.watch(doctorsProvider);
-
-    // Match: departments on name + descriptor; doctors on name + specialty +
-    // department + that department's descriptor (so "skin" finds Dr. Sara Ali).
-    final deptByName = {for (final d in departments) d.name: d};
-    final filteredDepts = query.isEmpty
-        ? departments
-        : departments
-              .where(
-                (d) => '${d.name} ${d.sub}'.toLowerCase().contains(query),
-              )
-              .toList();
-    final filteredDocs = query.isEmpty
-        ? doctors
-        : doctors.where((doc) {
-            final descriptor = deptByName[doc.department]?.sub ?? '';
-            final haystack =
-                '${doc.name} ${doc.spec} ${doc.department} $descriptor'
-                    .toLowerCase();
-            return haystack.contains(query);
-          }).toList();
-    final isEmpty = filteredDepts.isEmpty && filteredDocs.isEmpty;
+    final state = ref.watch(searchProvider);
+    final results = ref.watch(searchResultsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.bgApp,
@@ -108,8 +108,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 child: _SearchField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  onChanged: (value) =>
-                      ref.read(searchQueryProvider.notifier).state = value,
+                  onChanged: ref.read(searchProvider.notifier).onInput,
+                  onClear: state.hasInput ? _clear : null,
                 ),
               ),
               Expanded(
@@ -118,29 +118,66 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (filteredDepts.isNotEmpty) ...[
-                        SizedBox(height: 10.h),
-                        _ResultsHeading('Departments'),
-                        SizedBox(height: 10.h),
-                        _ResultsCard(
-                          rows: [
-                            for (final dept in filteredDepts)
-                              _departmentRow(context, dept),
-                          ],
-                        ),
+                      if (state.isSettling && state.hasInput)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 28.h),
+                          child: const Center(child: AppInlineLoader()),
+                        )
+                      else if (results.isEmpty)
+                        _EmptyState(
+                          query: state.input,
+                          onClear: _clear,
+                          onBrowseHospitals: () =>
+                              context.push(AppRoutes.hospitals),
+                        )
+                      else ...[
+                        if (results.departments.isNotEmpty) ...[
+                          SizedBox(height: 10.h),
+                          _ResultsHeading(
+                            'Departments',
+                            count: results.departments.length,
+                          ),
+                          SizedBox(height: 10.h),
+                          _ResultsCard(
+                            rows: [
+                              for (final dept in results.departments)
+                                _departmentRow(context, dept),
+                            ],
+                          ),
+                        ],
+                        if (results.doctors.isNotEmpty) ...[
+                          SizedBox(height: 20.h),
+                          _ResultsHeading(
+                            'Doctors',
+                            count: results.doctors.length,
+                          ),
+                          SizedBox(height: 10.h),
+                          _ResultsCard(
+                            rows: [
+                              for (final doc in results.doctors)
+                                _doctorRow(context, doc),
+                            ],
+                          ),
+                        ],
+                        if (results.hospitals.isNotEmpty) ...[
+                          SizedBox(height: 20.h),
+                          _ResultsHeading(
+                            'Hospitals',
+                            count: results.hospitals.length,
+                          ),
+                          SizedBox(height: 10.h),
+                          _ResultsCard(
+                            rows: [
+                              for (final hospital in results.hospitals)
+                                _hospitalRow(context, hospital),
+                            ],
+                          ),
+                        ],
                       ],
-                      if (filteredDocs.isNotEmpty) ...[
-                        SizedBox(height: 20.h),
-                        _ResultsHeading('Doctors'),
-                        SizedBox(height: 10.h),
-                        _ResultsCard(
-                          rows: [
-                            for (final doc in filteredDocs)
-                              _doctorRow(context, doc),
-                          ],
-                        ),
-                      ],
-                      if (isEmpty) _EmptyState(query: rawQuery),
+                      SizedBox(height: 22.h),
+                      _AppointmentSearchLink(
+                        onTap: () => context.push(AppRoutes.appointmentsSearch),
+                      ),
                     ],
                   ),
                 ),
@@ -154,17 +191,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _departmentRow(BuildContext context, Department dept) {
     return SearchResultRow(
-      leading: Container(
-        width: 40.r,
-        height: 40.r,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceTint,
-          borderRadius: AppRadii.md,
-        ),
-        child: Center(
-          child: AppIcon(dept.iconName, size: 22, color: AppColors.brand),
-        ),
-      ),
+      leading: _IconHolder(iconName: dept.iconName),
       title: dept.name,
       subtitle: dept.sub,
       actionLabel: 'Book',
@@ -179,28 +206,65 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       title: doc.name,
       subtitle: '${doc.spec} · ${doc.hospital}',
       actionLabel: 'View',
-      onTap: () => context.push(AppRoutes.doctorPath(doc.id, returnTo: 'search')),
+      onTap: () =>
+          context.push(AppRoutes.doctorPath(doc.id, returnTo: 'search')),
+    );
+  }
+
+  Widget _hospitalRow(BuildContext context, Hospital hospital) {
+    return SearchResultRow(
+      leading: _IconHolder(iconName: MedIcon.hospital),
+      title: hospital.name,
+      subtitle: '${hospital.locationLabel} · ${hospital.distanceLabel}',
+      actionLabel: 'View',
+      onTap: () => context.push(AppRoutes.hospitalPath(hospital.id)),
     );
   }
 }
 
-/// The pill-shaped search input (bordered white pill, leading search glyph).
+/// The tinted square that fronts a department or hospital row.
+class _IconHolder extends StatelessWidget {
+  const _IconHolder({required this.iconName});
+
+  final String iconName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40.r,
+      height: 40.r,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTint,
+        borderRadius: AppRadii.md,
+      ),
+      child: Center(child: AppIcon(iconName, size: 22, color: AppColors.brand)),
+    );
+  }
+}
+
+/// The pill-shaped search input, with a clear button once there is text.
 class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.controller,
     required this.focusNode,
     required this.onChanged,
+    this.onClear,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final ValueChanged<String> onChanged;
 
+  /// Null while the field is empty, so the button is absent rather than inert.
+  final VoidCallback? onClear;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 52.h,
-      padding: EdgeInsets.symmetric(horizontal: 18.w),
+      // Minimum, not fixed: the pill grows with the OS text scale instead of
+      // clipping the query at 1.3x.
+      constraints: BoxConstraints(minHeight: 52.h),
+      padding: EdgeInsets.fromLTRB(18.w, 4.h, 8.w, 4.h),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border.all(color: AppColors.border, width: 1.w),
@@ -218,43 +282,63 @@ class _SearchField extends StatelessWidget {
               cursorColor: AppColors.brand,
               textInputAction: TextInputAction.search,
               style: AppText.poppins(
-                size: 15,
-                weight: AppText.regular,
+                size: AppFontSize.body,
                 color: AppColors.textPrimary,
               ),
               decoration: InputDecoration(
                 isCollapsed: true,
                 border: InputBorder.none,
-                hintText: 'Search doctors or departments...',
+                hintText: 'Doctors, departments or hospitals',
                 hintStyle: AppText.poppins(
-                  size: 15,
-                  weight: AppText.regular,
+                  size: AppFontSize.body,
                   color: AppColors.textMuted,
                 ),
               ),
             ),
           ),
+          if (onClear != null)
+            AppIconButton(
+              icon: MedIcon.closeCircle,
+              variant: AppIconButtonVariant.plain,
+              size: 32,
+              semanticLabel: 'Clear the search',
+              onPressed: onClear,
+            ),
         ],
       ),
     );
   }
 }
 
-/// A results section heading (16/600, navy).
+/// A results section heading with its count, so the groups are scannable.
 class _ResultsHeading extends StatelessWidget {
-  const _ResultsHeading(this.text);
+  const _ResultsHeading(this.text, {required this.count});
 
   final String text;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppText.poppins(
-        size: 16,
-        weight: AppText.semibold,
-        color: AppColors.textStrong,
-      ),
+    return Row(
+      children: [
+        Text(
+          text,
+          style: AppText.poppins(
+            size: AppFontSize.body,
+            weight: AppText.semibold,
+            color: AppColors.textStrong,
+          ),
+        ),
+        SizedBox(width: 8.w),
+        Text(
+          '$count',
+          style: AppText.poppins(
+            size: AppFontSize.xs,
+            weight: AppText.medium,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -274,31 +358,89 @@ class _ResultsCard extends StatelessWidget {
   }
 }
 
-/// Shown when the query matches neither a department nor a doctor.
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.query});
+/// The way across to appointment search, which matches a different haystack
+/// (booking reference, token, patient) and belongs to the appointments feature.
+class _AppointmentSearchLink extends StatelessWidget {
+  const _AppointmentSearchLink({required this.onTap});
 
-  final String query;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 46.h),
-      child: Column(
-        children: [
-          AppIcon(MedIcon.search, size: 34, color: AppColors.textMuted),
-          SizedBox(height: 12.h),
-          Text(
-            'No matches for “$query”',
-            textAlign: TextAlign.center,
-            style: AppText.poppins(
-              size: 14,
-              weight: AppText.regular,
-              color: AppColors.textMuted,
+    return Semantics(
+      button: true,
+      label: 'Search your own appointments by booking reference or token',
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              borderRadius: AppRadii.md,
+              border: Border.all(color: AppColors.border, width: 1.w),
+            ),
+            child: Row(
+              children: [
+                AppIcon(MedIcon.calendar, size: 18, color: AppColors.textMuted),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Text(
+                    'Looking for one of your appointments? Search by booking '
+                    'reference or token.',
+                    style: AppText.poppins(
+                      size: AppFontSize.xs,
+                      color: AppColors.textBody,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Text(
+                  'Open',
+                  style: AppText.poppins(
+                    size: AppFontSize.xs,
+                    weight: AppText.semibold,
+                    color: AppColors.textLink,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+/// Shown when the query matches no department, doctor or hospital.
+///
+/// Carries actions, per §3.2.2: a dead-end "no matches" line was the audit's
+/// complaint about every empty state in the app.
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.query,
+    required this.onClear,
+    required this.onBrowseHospitals,
+  });
+
+  final String query;
+  final VoidCallback onClear;
+  final VoidCallback onBrowseHospitals;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppEmptyView(
+      iconName: MedIcon.search,
+      headline: 'No matches for “${query.trim()}”',
+      body:
+          'Try a department ("Cardiology"), a doctor\'s name, or an area '
+          'like "Whitefield".',
+      actionLabel: 'Clear the search',
+      onAction: onClear,
+      secondaryLabel: 'Browse hospitals',
+      onSecondary: onBrowseHospitals,
     );
   }
 }
