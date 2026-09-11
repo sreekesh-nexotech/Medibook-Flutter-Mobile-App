@@ -17,6 +17,12 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Framework localization delegates (Material/Cupertino/Widgets). Required for
+  # the l10n scaffolding in app/localization/l10n.dart — without it the
+  # framework itself stays English-only no matter what our strings do.
+  flutter_localizations:
+    sdk: flutter
+
   cupertino_icons: ^1.0.8
 
   # State management (presentation-local providers + UI controllers)
@@ -40,6 +46,11 @@ dependencies:
 
   # Date/number formatting
   intl: ^0.20.2
+
+  # SHA-256 for the Hive cache-key strategy (docs-flutter/HIVE implementation.md).
+  # Already in the lockfile transitively (flutter_cache_manager); promoted to a
+  # direct dependency because core/storage/hive/keys.dart imports it.
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

@@ -31,7 +31,7 @@ abstract final class AppColors {
   // ---- Neutral grey ramp ----
   static const Color grey100 = Color(0xFFEBECEE); // hairlines, track
   static const Color grey200 = Color(0xFFC1C5C9);
-  static const Color grey300 = Color(0xFF999EA3);
+  static const Color grey300 = Color(0xFF999EA3); // radio/checkbox hairlines
   static const Color grey400 = Color(0xFF75797D);
   static const Color grey500 = Color(0xFF535659);
   static const Color grey600 = Color(0xFF333537);
@@ -52,7 +52,32 @@ abstract final class AppColors {
   static const Color textStrong = Color(0xFF1D3557); // navy headings
   static const Color textPrimary = Color(0xFF141414); // default body heading
   static const Color textBody = Color(0xFF5E5D5D); // paragraph
-  static const Color textMuted = Color(0xFF8E98A8); // captions, placeholders
+
+  /// Captions, placeholders, meta text.
+  ///
+  /// A11Y (audit §3.3.7): this was `#8E98A8`, which measures **2.91:1** on
+  /// `surface` — below the WCAG AA 4.5:1 floor for body text. Darkened to
+  /// `#646E7B`, which measures 5.17:1 on `surface` (#FFFFFF), 4.66:1 on
+  /// [bgApp] (#F3F3F3) and 4.87:1 on [surfaceAlt] (#F7F8FA) — every surface
+  /// this token is painted on passes. The original value survives as
+  /// [textMutedDecorative] for non-text use only.
+  static const Color textMuted = Color(0xFF646E7B);
+
+  /// The pre-fix `textMuted` value (`#8E98A8`, 2.91:1 on white).
+  ///
+  /// **Never use this for text.** It exists only for decorative, non-textual
+  /// marks (hairlines, inactive tick marks, chart gridlines) where WCAG's text
+  /// contrast minimum does not apply.
+  static const Color textMutedDecorative = Color(0xFF8E98A8);
+
+  /// Inactive bottom-nav / inactive tab label colour.
+  ///
+  /// A11Y (audit §3.3.7): the nav previously reused [grey300] (`#999EA3`,
+  /// **2.70:1** on `surface`). [grey300] is also the checkbox/radio hairline
+  /// colour, so darkening it would have changed decorative strokes; this is a
+  /// dedicated text token instead. `#6A6E72` measures 5.14:1 on `surface`.
+  static const Color textInactive = Color(0xFF6A6E72);
+
   static const Color textOnBrand = Color(0xFFFFFFFF);
   static const Color textLink = Color(0xFF1648CE);
 

@@ -37,6 +37,55 @@ abstract final class AppConstants {
 
   /// Booking token counter seed (`A-26`, increments per confirmed booking).
   static const int tokenCounterStart = 26;
+
+  // ---- Auth / session (CM-05 lockout, CM-53 logout) ----
+
+  /// Failed sign-in attempts tolerated before the account is locked out.
+  /// Consumed by `features/auth/application/states/auth_state.dart`.
+  static const int maxLoginAttempts = 5;
+
+  /// Cooldown applied once [maxLoginAttempts] is reached. The lockout screen
+  /// counts this down; `AuthNotifier.login` refuses while it is active.
+  static const Duration loginLockoutCooldown = Duration(seconds: 60);
+
+  /// How long a session token is treated as fresh before the repository is
+  /// asked to refresh it. Informational until the data layer lands.
+  static const Duration sessionRefreshWindow = Duration(minutes: 55);
+
+  // ---- Booking (X-02 slot hold) ----
+
+  /// How long a picked slot is held for the user while they pay. Drives
+  /// `AppCountdown` on the payment screen.
+  static const Duration slotHold = Duration(minutes: 5);
+
+  // ---- Network (used by core/network) ----
+
+  /// Per-request timeout from `docs-flutter/HIVE implementation.md`.
+  static const Duration apiTimeout = Duration(seconds: 10);
+
+  /// Default page size for paginated list endpoints.
+  static const int defaultPageSize = 20;
+
+  /// Debounce applied to search-as-you-type inputs.
+  static const Duration searchDebounce = Duration(milliseconds: 300);
+
+  // ---- Accessibility ----
+
+  /// Upper bound applied to the OS text scale (audit §3.3.6). The design is
+  /// built on fixed-height controls (48px buttons, 52px inputs), so scaling
+  /// past 1.3x clips glyphs; below that everything still fits. See
+  /// `app/app.dart`.
+  static const double maxTextScale = 1.3;
+
+  /// Whether animation-heavy affordances (the auto-rotating home banner, the
+  /// skeleton pulse, enter animations) should stand still for this viewer.
+  ///
+  /// Returns `true` when the platform's "reduce motion" / "remove animations"
+  /// accessibility setting is on. Prefer `reduceMotion(context)` from
+  /// `core/utils/motion.dart` at call sites — this is the same check, exposed
+  /// here so non-widget code can reach it.
+  static bool respectReducedMotion(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context);
 }
 
 /// The 4/8 spacing scale (design-system `tokens/spacing.css`).
