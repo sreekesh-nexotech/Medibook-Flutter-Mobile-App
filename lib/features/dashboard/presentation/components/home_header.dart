@@ -7,6 +7,7 @@ import '../../../../app/theme/typography.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_icon_button.dart';
+import '../../../notifications/presentation/components/notification_bell.dart';
 
 /// The Home navy header: greeting + bell + ringed avatar, with a white pill
 /// search bar beneath. Pure presentation — the screen supplies the user's
@@ -69,11 +70,13 @@ class HomeHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              AppIconButton(
-                icon: MedIcon.bell,
+              // The bell carries the unread count (CM-41) and its own
+              // semantics label; it reads the store itself, so the header
+              // stays a plain widget.
+              NotificationBellButton(
+                onPressed: onBell,
                 variant: AppIconButtonVariant.onBrand,
                 size: 40,
-                onPressed: onBell,
               ),
               SizedBox(width: 14.w),
               GestureDetector(

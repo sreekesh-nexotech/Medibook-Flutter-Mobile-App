@@ -480,6 +480,21 @@ abstract final class MedibookSeed {
       appointmentId: '2',
     ),
     AppNotification(
+      id: 'n-7',
+      title: 'Appointment Rescheduled',
+      kind: NotificationKind.change,
+      body:
+          'The hospital moved your appointment with Dr. Priya Mehta to '
+          '10:30 AM today. Your token is now T-025. Tap to review the new '
+          'time, or reschedule if it no longer suits you.',
+      createdAt: _now.subtract(const Duration(hours: 5)),
+      appointmentId: '1',
+      action1Label: 'Reschedule',
+      action1: NotificationAction.rescheduleTodayAppt,
+      action2Label: 'View Details',
+      action2: NotificationAction.viewTodayApptDetail,
+    ),
+    AppNotification(
       id: 'n-6',
       title: 'Appointment Cancelled',
       kind: NotificationKind.cancellation,

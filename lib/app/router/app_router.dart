@@ -37,6 +37,8 @@ import '../../features/appointments/presentation/screen/appointment_receipt_scre
 import '../../features/appointments/presentation/screen/appointment_search_screen.dart';
 import '../../features/appointments/presentation/screen/appointments_screen.dart';
 import '../../features/appointments/presentation/screen/reschedule_screen.dart';
+import '../../features/records/presentation/screen/document_detail_screen.dart';
+import '../../features/records/presentation/screen/document_upload_screen.dart';
 import '../../features/records/presentation/screen/records_screen.dart';
 import '../../features/profile/presentation/screen/profile_screen.dart';
 
@@ -244,6 +246,20 @@ GoRouter buildAppRouter(WidgetRef ref) {
       GoRoute(
         path: AppRoutes.ambulance,
         builder: (_, _) => const AmbulanceScreen(),
+      ),
+
+      // ---- Documents library (CM-32..CM-36) ----
+      // `/documents/upload` is registered BEFORE `/documents/:id`, or the
+      // param route would swallow it and try to open a document called
+      // "upload".
+      GoRoute(
+        path: AppRoutes.documentUpload,
+        builder: (_, _) => const DocumentUploadScreen(),
+      ),
+      GoRoute(
+        path: '${AppRoutes.documents}/:id',
+        builder: (context, state) =>
+            DocumentDetailScreen(documentId: state.pathParameters['id']!),
       ),
 
       // Reachable by name so a failed deep link can land somewhere honest.
