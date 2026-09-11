@@ -59,7 +59,18 @@ class DoctorCard extends StatelessWidget {
                   style: AppText.poppins(size: 12, color: AppColors.textMuted),
                 ),
                 SizedBox(height: 4.h),
-                AppRating(value: doctor.rating, showValue: true, size: 13),
+                // AppRating lays its stars out in a Row that cannot flex
+                // (core widget), so at a large OS text scale the value label
+                // would push past the card. Scale-down keeps it inside.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: AppRating(
+                    value: doctor.rating,
+                    showValue: true,
+                    size: 13,
+                  ),
+                ),
               ],
             ),
           ),

@@ -115,9 +115,8 @@ class _DayChip extends StatelessWidget {
     }
 
     final Color? dot = switch (availability) {
-      DayAvailability.available => selected
-          ? AppColors.textOnBrand
-          : AppColors.success,
+      DayAvailability.available =>
+        selected ? AppColors.textOnBrand : AppColors.success,
       DayAvailability.fullyBooked => AppColors.danger,
       DayAvailability.unavailable => null,
       DayAvailability.past => null,
@@ -157,9 +156,7 @@ class _DayChip extends StatelessWidget {
                 Text(
                   // "Today", else the short weekday ("Mon"). Derived from the
                   // one date formatter rather than a second table of names.
-                  isToday
-                      ? 'Today'
-                      : AppDates.weekdayLong(day).substring(0, 3),
+                  isToday ? 'Today' : AppDates.weekdayLong(day).substring(0, 3),
                   style: AppText.poppins(
                     size: AppFontSize.xxs,
                     weight: AppText.medium,

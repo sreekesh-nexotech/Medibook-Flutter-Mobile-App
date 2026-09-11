@@ -109,9 +109,7 @@ class BookingDraft {
 
   /// True while a slot is held and the deadline has not passed.
   bool get isHoldActive =>
-      !holdExpired &&
-      holdUntil != null &&
-      holdUntil!.isAfter(DateTime.now());
+      !holdExpired && holdUntil != null && holdUntil!.isAfter(DateTime.now());
 
   /// The chosen slot's start instant — the appointment's `scheduledAt`.
   DateTime? get scheduledAt => slot?.start;
@@ -250,10 +248,8 @@ class BookingController extends StateNotifier<BookingDraft> {
 
   /// Apply a coupon (CM-19). [error] is the honest feedback for a code the
   /// catalogue does not know; pass it with a null [code].
-  void applyCoupon({String? code, String? error}) => state = state.copyWith(
-    couponCode: () => code,
-    couponError: () => error,
-  );
+  void applyCoupon({String? code, String? error}) =>
+      state = state.copyWith(couponCode: () => code, couponError: () => error);
 
   void removeCoupon() =>
       state = state.copyWith(couponCode: () => null, couponError: () => null);

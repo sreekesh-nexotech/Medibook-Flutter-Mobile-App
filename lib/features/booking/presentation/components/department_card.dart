@@ -43,7 +43,11 @@ class DepartmentCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.md.r),
             ),
             alignment: Alignment.center,
-            child: AppIcon(department.iconName, size: 24, color: AppColors.brand),
+            child: AppIcon(
+              department.iconName,
+              size: 24,
+              color: AppColors.brand,
+            ),
           ),
           SizedBox(height: 12.h),
           Text(

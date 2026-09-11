@@ -35,9 +35,7 @@ DayAvailability resolveDayAvailability(
   final target = AppDates.startOfDay(day);
   if (target.isBefore(today)) return DayAvailability.past;
 
-  final slots = ref.read(
-    slotsForProvider((doctorId: doctorId, day: target)),
-  );
+  final slots = ref.read(slotsForProvider((doctorId: doctorId, day: target)));
   if (slots.isUnavailable) return DayAvailability.unavailable;
   if (slots.hasAvailability) return DayAvailability.available;
   // Slots were published but none are bookable — a full day, which must read
@@ -50,7 +48,8 @@ DayAvailability resolveDayAvailability(
 DayAvailabilityResolver dayAvailabilityResolver(
   WidgetRef ref,
   String doctorId,
-) => (day) => resolveDayAvailability(ref, doctorId, day);
+) =>
+    (day) => resolveDayAvailability(ref, doctorId, day);
 
 /// Why a day has nothing to offer, worded for the patient (CM-12).
 ///

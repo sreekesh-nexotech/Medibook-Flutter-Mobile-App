@@ -90,14 +90,15 @@ class SlotChipTile extends StatelessWidget {
               children: [
                 Text(
                   slot.timeLabel,
-                  style: AppText.poppins(
-                    size: 13,
-                    weight: AppText.medium,
-                    color: foreground,
-                  ).copyWith(
-                    decoration: struck ? TextDecoration.lineThrough : null,
-                    decorationColor: foreground,
-                  ),
+                  style:
+                      AppText.poppins(
+                        size: 13,
+                        weight: AppText.medium,
+                        color: foreground,
+                      ).copyWith(
+                        decoration: struck ? TextDecoration.lineThrough : null,
+                        decorationColor: foreground,
+                      ),
                 ),
                 if (slot.status == SlotStatus.blocked) ...[
                   SizedBox(height: 2.h),

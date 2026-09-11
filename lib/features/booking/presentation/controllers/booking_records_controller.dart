@@ -132,6 +132,25 @@ class BookingRecordsController extends StateNotifier<BookingLedger> {
     return record;
   }
 
+  /// Attach the ledger payment id to a filed booking (CM-17).
+  ///
+  /// Returns **false** when there is no such record, so a caller can never
+  /// report a link that was not made (THE LAW on honest controls).
+  bool linkPayment(String appointmentId, String paymentId) {
+    final existing = forAppointment(appointmentId);
+    if (existing == null) return false;
+    state = state.copyWith(
+      records: [
+        for (final record in state.records)
+          if (record.appointmentId == appointmentId)
+            record.copyWith(paymentId: paymentId)
+          else
+            record,
+      ],
+    );
+    return true;
+  }
+
   BookingRecord? forAppointment(String appointmentId) {
     for (final record in state.records) {
       if (record.appointmentId == appointmentId) return record;

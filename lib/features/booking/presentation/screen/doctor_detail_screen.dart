@@ -15,7 +15,9 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_rating.dart';
+import '../../domain/booking_routes.dart';
 import '../components/doctor_stat.dart';
+import '../components/flow_screen_enter.dart';
 import '../controllers/booking_controller.dart';
 
 /// Doctor detail: hero card (avatar, name, spec·hospital, rating, 3-up stats) +
@@ -55,15 +57,25 @@ class DoctorDetailScreen extends ConsumerWidget {
   /// origin; otherwise the origin is home.
   void _bookThisDoctor(BuildContext context, WidgetRef ref, Doctor doctor) {
     final String origin;
+    String? hospitalId;
     if (returnTo == 'booking') {
-      final existing = ref.read(bookingControllerProvider).origin;
-      origin = existing == BookingOrigin.appointments ? 'appointments' : 'home';
+      final draft = ref.read(bookingControllerProvider);
+      origin = draft.origin == BookingOrigin.appointments
+          ? 'appointments'
+          : 'home';
+      // Keep the facility the funnel was entered through (CM-11) — but only
+      // when this doctor actually practises there, so a cross-hospital tap
+      // cannot produce a draft that contradicts itself.
+      if (draft.hospitalId != null && draft.hospitalId == doctor.hospitalId) {
+        hospitalId = draft.hospitalId;
+      }
     } else {
       origin = 'home';
     }
     context.go(
-      AppRoutes.bookingPath(
+      BookingRoutes.booking(
         step: 3,
+        hospital: hospitalId,
         dept: doctor.department,
         doctor: doctor.id,
         origin: origin,
@@ -78,7 +90,7 @@ class DoctorDetailScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.bgApp,
       body: SafeArea(
-        child: _ScreenEnter(
+        child: FlowScreenEnter(
           child: Column(
             children: [
               AppInnerHeader(
@@ -225,14 +237,21 @@ class DoctorDetailScreen extends ConsumerWidget {
                 SizedBox(height: 3.h),
                 Row(
                   children: [
-                    AppIcon(MedIcon.location, size: 14, color: AppColors.textMuted),
+                    AppIcon(
+                      MedIcon.location,
+                      size: 14,
+                      color: AppColors.textMuted,
+                    ),
                     SizedBox(width: 5.w),
                     Flexible(
                       child: Text(
                         'Multi-speciality center',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppText.poppins(size: 12, color: AppColors.textMuted),
+                        style: AppText.poppins(
+                          size: 12,
+                          color: AppColors.textMuted,
+                        ),
                       ),
                     ),
                   ],
@@ -248,7 +267,12 @@ class DoctorDetailScreen extends ConsumerWidget {
   Widget _footer(BuildContext context, WidgetRef ref, Doctor doctor) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.only(left: 20.w, right: 20.w, top: 14.h, bottom: 22.h),
+      padding: EdgeInsets.only(
+        left: 20.w,
+        right: 20.w,
+        top: 14.h,
+        bottom: 22.h,
+      ),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(
@@ -260,30 +284,6 @@ class DoctorDetailScreen extends ConsumerWidget {
         fullWidth: true,
         onPressed: () => _bookThisDoctor(context, ref, doctor),
       ),
-    );
-  }
-}
-
-/// Pushed-screen enter: fade + 10px rise over [AppConstants.screenIn].
-class _ScreenEnter extends StatelessWidget {
-  const _ScreenEnter({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: AppConstants.screenIn,
-      curve: Curves.easeOut,
-      builder: (context, t, child) => Opacity(
-        opacity: t.clamp(0.0, 1.0),
-        child: Transform.translate(
-          offset: Offset(0, (1 - t) * 10.h),
-          child: child,
-        ),
-      ),
-      child: child,
     );
   }
 }
