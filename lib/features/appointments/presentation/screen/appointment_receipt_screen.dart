@@ -7,7 +7,6 @@ import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/payment.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
@@ -166,7 +165,7 @@ class AppointmentReceiptScreen extends ConsumerWidget {
               SizedBox(width: 10.w),
               AppStatusPill(
                 label: receipt.status.label,
-                colors: _paymentPill(receipt.status),
+                colors: AppStatusStyle.payment(receipt.status),
               ),
             ],
           ),
@@ -339,24 +338,6 @@ class AppointmentReceiptScreen extends ConsumerWidget {
   /// Pill colours for a payment status. Local to this screen because
   /// `core/widgets/status_style.dart` has no payment-status lookup and core is
   /// frozen this round.
-  PillColors _paymentPill(PaymentStatus status) => switch (status) {
-    PaymentStatus.paid => (
-      background: AppColors.successSoft,
-      foreground: AppColors.successText,
-    ),
-    PaymentStatus.refunded => (
-      background: AppColors.surfaceTint,
-      foreground: AppColors.brand,
-    ),
-    PaymentStatus.pending => (
-      background: AppColors.warningSoft,
-      foreground: AppColors.grey600,
-    ),
-    PaymentStatus.failed => (
-      background: AppColors.dangerSoft,
-      foreground: AppColors.dangerText,
-    ),
-  };
 
   void _leave(BuildContext context) {
     if (context.canPop()) {
