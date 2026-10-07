@@ -41,7 +41,7 @@ DESIGN-SPEC §4 — this guide fixes the wiring, file placement, and shared rule
 9. **Forms** — the screen is a `ConsumerStatefulWidget` owning the
    `TextEditingController`s (input mechanics). Validation **errors** and other
    transient selections live in an **autoDispose** provider/StateNotifier in the
-   feature's `presentation/controllers/`. Validate with `Validators`
+   feature's `application/providers/`. Validate with `Validators`
    (`core/utils/validators.dart`) in the submit callback.
 10. **No infrastructure imports.** Presentation reads seed via the providers in
     `core/mock_data/seed_providers.dart` and the shared controllers. No Hive, no
@@ -56,12 +56,12 @@ features/<feature>/presentation/
 └── controllers/    autoDispose StateNotifiers / StateProviders for local UI state
 ```
 Shared controllers already exist — **consume, don't recreate**:
-- `features/appointments/presentation/controllers/appointments_controller.dart`
+- `features/appointments/application/providers/appointments_controller.dart`
   → `appointmentsControllerProvider`, `appointmentsByBucketProvider(bucket)`,
   `firstUpcomingAppointmentProvider`, `appointmentByIdProvider(id)`.
-- `features/booking/presentation/controllers/booking_controller.dart`
+- `features/booking/application/providers/booking_controller.dart`
   → `bookingControllerProvider` (+ `BookingDraft`, `BookingOrigin`).
-- `features/dashboard/presentation/controllers/banner_controller.dart`
+- `features/dashboard/application/providers/banner_controller.dart`
   → `bannerControllerProvider`.
 - `core/widgets/toast/toast_controller.dart` → `toastControllerProvider`.
 Read providers: `core/mock_data/seed_providers.dart`.

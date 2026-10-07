@@ -8,8 +8,9 @@ import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
+import '../../../../core/network/connectivity/connectivity_monitor.dart';
 import '../../../../core/error/error_view.dart';
-import '../../../../core/mock_data/models/insurance_policy.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
@@ -17,30 +18,57 @@ import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/app_segmented_tabs.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
 import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../application/providers/insurance_provider.dart';
+import '../../application/states/insurance_list_state.dart';
+import '../../domain/entities/insurance_policy.dart';
 import '../components/insurance_policy_card.dart';
-import '../controllers/insurance_list_controller.dart';
+import '../components/policy_labels.dart';
 
 /// The insurance locker (`/insurance`) — CM-37, CM-39.
 ///
-/// The audit's finding was "nothing exists". This is the list: every policy on
-/// the account, filterable by in-force / expired, each card showing its status
-/// in words as well as colour, with the renewal nudge for anything inside 30
-/// days of expiry (CM-39) pinned above the list.
-///
-/// All four list states are here — skeletons on first load, [AppErrorView]
-/// with a retry, an empty state that offers the add form (a fresh account has
-/// no policies, so it is the first thing a real user sees), and the content
-/// list, refreshable by pulling.
+/// `GET /patient/me/insurance-policies` through the three-layer cache, with
+/// every state real: skeletons on a cold start, [AppErrorView] with retry,
+/// the empty state that offers the add form, the content list with the
+/// in-force / expired tabs (derived from `valid_to`, §6.4), pull-to-refresh,
+/// "updating…", the stale bar and the offline note.
 class InsuranceScreen extends ConsumerWidget {
   const InsuranceScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(insuranceListControllerProvider);
+    if (!ref.watch(insuranceEnabledProvider)) {
+      return Scaffold(
+        backgroundColor: AppColors.bgApp,
+        body: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppInnerHeader(
+                title: 'Insurance',
+                onBack: () => _leave(context),
+                backSemanticLabel: 'Back to profile',
+              ),
+              const Expanded(
+                child: AppEmptyView(
+                  iconName: PhIcon.firstAid,
+                  headline: 'Insurance is not available right now',
+                  body:
+                      'This part of the app is switched off at the moment. '
+                      'Check back later.',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final state = ref.watch(insuranceListProvider);
     final policies = ref.watch(visibleInsurancePoliciesProvider);
     final counts = ref.watch(insuranceFilterCountsProvider);
     final expiringSoon = ref.watch(expiringSoonPoliciesProvider);
-    final controller = ref.read(insuranceListControllerProvider.notifier);
+    final isOnline = ref.watch(isOnlineProvider).valueOrNull ?? true;
+    final controller = ref.read(insuranceListProvider.notifier);
 
     final hasAnyPolicy = (counts[InsuranceFilter.all] ?? 0) > 0;
 
@@ -88,6 +116,7 @@ class InsuranceScreen extends ConsumerWidget {
                 policies: policies,
                 expiringSoon: expiringSoon,
                 hasAnyPolicy: hasAnyPolicy,
+                isOnline: isOnline,
               ),
             ),
           ],
@@ -96,8 +125,6 @@ class InsuranceScreen extends ConsumerWidget {
     );
   }
 
-  /// "Active 2" — the count belongs in the tab so the filter answers "is there
-  /// anything in there" before it is tapped.
   String _tabLabel(InsuranceFilter filter, int count) =>
       count == 0 ? filter.label : '${filter.label} $count';
 
@@ -108,10 +135,11 @@ class InsuranceScreen extends ConsumerWidget {
     required List<InsurancePolicy> policies,
     required List<InsurancePolicy> expiringSoon,
     required bool hasAnyPolicy,
+    required bool isOnline,
   }) {
-    final controller = ref.read(insuranceListControllerProvider.notifier);
+    final controller = ref.read(insuranceListProvider.notifier);
 
-    if (state.isLoading) {
+    if (state.isLoading && !state.hasData) {
       return SingleChildScrollView(
         child: AppSkeletonList(
           count: 3,
@@ -125,7 +153,7 @@ class InsuranceScreen extends ConsumerWidget {
       );
     }
 
-    if (state.failure != null && policies.isEmpty) {
+    if (state.failure != null && !state.hasData) {
       return AppErrorView(
         failure: state.failure!,
         headline: 'We could not load your policies',
@@ -135,16 +163,56 @@ class InsuranceScreen extends ConsumerWidget {
       );
     }
 
+    final cachedAt = state.cachedAt;
+    final banners = <Widget>[
+      // Offline is said once, by the app-wide OfflineBar (offline audit).
+      if (isOnline && state.isStale && cachedAt != null)
+        AppErrorBanner(
+          message:
+              'Data from ${AppDates.relativeAgo(cachedAt)} • Tap to refresh',
+          onTap: controller.refresh,
+        ),
+      if (state.failure != null)
+        AppErrorBanner(
+          message: state.failure!.userMessage,
+          tone: AppBannerTone.danger,
+          iconName: PhIcon.xCircle,
+          onTap: controller.retry,
+        ),
+      if (state.revalidating)
+        Row(
+          children: [
+            const AppInlineLoader(size: 14),
+            SizedBox(width: 8.w),
+            Text(
+              'Updating…',
+              style: AppText.poppins(
+                size: AppFontSize.xs,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ],
+        ),
+    ];
+
     return AppRefreshIndicator(
       onRefresh: controller.refresh,
       child: policies.isEmpty
           ? ListView(
               children: [
+                for (final banner in banners)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.x5.w,
+                      AppSpacing.x3.h,
+                      AppSpacing.x5.w,
+                      0,
+                    ),
+                    child: banner,
+                  ),
                 hasAnyPolicy
-                    // A filter matched nothing — the way out is the filter,
-                    // not the add form.
                     ? AppEmptyView(
-                        iconName: MedIcon.hospital,
+                        iconName: PhIcon.firstAid,
                         headline: state.filter == InsuranceFilter.expired
                             ? 'No expired policies'
                             : 'No policies in force',
@@ -161,7 +229,7 @@ class InsuranceScreen extends ConsumerWidget {
                         onSecondary: () => context.push(AppRoutes.insuranceAdd),
                       )
                     : AppEmptyView(
-                        iconName: MedIcon.hospital,
+                        iconName: PhIcon.firstAid,
                         headline: 'No insurance saved',
                         body:
                             'Save your health policy here and it is to hand '
@@ -180,15 +248,10 @@ class InsuranceScreen extends ConsumerWidget {
                 AppSpacing.x8.h,
               ),
               children: [
-                if (state.failure != null) ...[
-                  AppErrorBanner(
-                    message: state.failure!.userMessage,
-                    onTap: controller.refresh,
-                  ),
+                for (final banner in banners) ...[
+                  banner,
                   SizedBox(height: AppSpacing.x4.h),
                 ],
-                // CM-39: a policy about to lapse is the one thing on this
-                // screen worth interrupting for.
                 if (expiringSoon.isNotEmpty) ...[
                   _RenewalNudge(policies: expiringSoon),
                   SizedBox(height: AppSpacing.x4.h),
@@ -223,11 +286,8 @@ class InsuranceScreen extends ConsumerWidget {
   }
 }
 
-/// The renewal nudge (CM-39): which policies lapse soon, and when.
-///
-/// It does not offer to renew — Medibook cannot renew an insurance policy, and
-/// a "Renew now" button that goes nowhere would be exactly the fake control
-/// this app is being audited for. It says what is happening and when.
+/// The renewal nudge (CM-39): which policies lapse soon, and when. It does
+/// not offer to renew — Medibook cannot renew a policy.
 class _RenewalNudge extends StatelessWidget {
   const _RenewalNudge({required this.policies});
 
@@ -244,7 +304,7 @@ class _RenewalNudge extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppIcon(MedIcon.clock, size: 20, color: AppColors.textPrimary),
+          AppIcon(PhIcon.clock, size: 20, color: AppColors.textPrimary),
           SizedBox(width: AppSpacing.x3.w),
           Expanded(
             child: Column(
@@ -265,7 +325,8 @@ class _RenewalNudge extends StatelessWidget {
                   Padding(
                     padding: EdgeInsets.only(top: 2.h),
                     child: Text(
-                      '${policy.provider} · ${policy.statusLabel.toLowerCase()}',
+                      '${policy.providerName} · '
+                      '${policy.statusLabel.toLowerCase()}',
                       style: AppText.poppins(
                         size: AppFontSize.xs,
                         height: 1.45,

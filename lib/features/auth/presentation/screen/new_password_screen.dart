@@ -13,9 +13,9 @@ import '../../../../core/widgets/toast/toast_controller.dart';
 import '../components/field_focus_group.dart';
 import '../components/new_password_fields.dart';
 import '../components/screen_fade_rise.dart';
-import '../controllers/auth_flow_draft.dart';
-import '../controllers/reset_form_controller.dart';
-import '../controllers/verify_request.dart';
+import '../../application/providers/auth_flow_draft.dart';
+import '../../application/providers/reset_form_controller.dart';
+import '../../application/providers/verify_request.dart';
 
 /// New Password (`/reset`) — the last step of the **logged-out** reset flow.
 ///
@@ -86,6 +86,7 @@ class _NewPasswordScreenState extends ConsumerState<NewPasswordScreen> {
       purpose: VerifyPurpose.passwordReset,
       channel: draft.channel,
       destination: draft.destination,
+      challengeId: draft.challengeId,
     ).path;
   }
 

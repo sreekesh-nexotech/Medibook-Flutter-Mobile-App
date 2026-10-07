@@ -4,14 +4,14 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/utils/money.dart';
-import '../../domain/entities/appointment_receipt.dart';
+import '../../domain/entities/receipt.dart';
 
-/// One priced line on the receipt: label (plus its note) on the left, the
-/// amount on the right.
+/// One priced line on the receipt (§10.8): description (plus who supplies
+/// it and the tax on it) on the left, the signed amount on the right.
 ///
 /// The amount is always rendered from [Money.format] — never a hand-built
-/// string — and a deduction shows its own sign and the success tone, so a
-/// coupon reads as money off rather than money owed.
+/// string — and a deduction (negative amount) shows in the success tone, so
+/// a discount reads as money off rather than money owed.
 class ReceiptLineRow extends StatelessWidget {
   const ReceiptLineRow({super.key, required this.line});
 
@@ -19,16 +19,9 @@ class ReceiptLineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final note = line.note;
     final amount = line.amount;
-    final isCredit = line.isDeduction || amount.isNegative;
-    // `Money.format` already carries the minus for a negative amount, so only
-    // a positive-but-deducted line needs one added.
-    final label = amount.isNegative
-        ? amount.format()
-        : isCredit
-        ? '−${amount.format()}'
-        : amount.format();
+    final isCredit = line.isDeduction;
+    final note = _note;
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 7.h),
@@ -40,7 +33,9 @@ class ReceiptLineRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  line.label,
+                  line.qty > 1
+                      ? '${line.description} × ${line.qty}'
+                      : line.description,
                   style: AppText.poppins(size: 13, color: AppColors.textBody),
                 ),
                 if (note != null) ...[
@@ -59,7 +54,7 @@ class ReceiptLineRow extends StatelessWidget {
           ),
           SizedBox(width: 12.w),
           Text(
-            label,
+            amount.format(),
             style: AppText.poppins(
               size: 13,
               weight: AppText.medium,
@@ -69,6 +64,31 @@ class ReceiptLineRow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// "Hospital · GST 18% (₹500)" / "Medibook · tax exempt".
+  String? get _note {
+    final supplier = switch (line.supplier) {
+      'hospital' => 'Hospital',
+      'platform' => 'Medibook',
+      _ => null,
+    };
+    final tax = line.rateBp > 0
+        ? 'GST ${_percent(line.rateBp)}'
+              '${line.tax.isZero ? '' : ' (${line.tax.format()})'}'
+              '${line.taxInclusive ? ', included' : ''}'
+        : line.isDeduction
+        ? null
+        : 'tax exempt';
+    final parts = [supplier, tax].whereType<String>().toList();
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  static String _percent(int bp) {
+    final percent = bp / 100;
+    return percent == percent.roundToDouble()
+        ? '${percent.round()}%'
+        : '${percent.toStringAsFixed(1)}%';
   }
 }
 

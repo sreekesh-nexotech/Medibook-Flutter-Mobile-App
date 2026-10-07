@@ -50,10 +50,22 @@ class LockoutNotice extends StatelessWidget {
   /// question worth asking.
   static bool showsFor(AuthState state) => state.failedAttempts > 0;
 
-  /// The cooldown in words ("60 seconds"), for the copy that warns about it.
-  static String get _cooldownLabel {
-    final seconds = AppConstants.loginLockoutCooldown.inSeconds;
-    return '$seconds ${seconds == 1 ? 'second' : 'seconds'}';
+  /// The cooldown in words ("1 hour", "15 minutes"), for the copy that
+  /// warns about it.
+  static String get _cooldownLabel =>
+      durationInWords(AppConstants.loginLockoutCooldown);
+
+  /// "1 hour", "2 hours", "15 minutes", "30 seconds".
+  @visibleForTesting
+  static String durationInWords(Duration d) {
+    String unit(int n, String one) => '$n ${n == 1 ? one : '${one}s'}';
+    if (d.inMinutes >= 60 && d.inMinutes % 60 == 0) {
+      return unit(d.inHours, 'hour');
+    }
+    if (d.inSeconds >= 60 && d.inSeconds % 60 == 0) {
+      return unit(d.inMinutes, 'minute');
+    }
+    return unit(d.inSeconds, 'second');
   }
 
   @override
@@ -62,7 +74,7 @@ class LockoutNotice extends StatelessWidget {
     if (state.isLockedOut && lockedUntil != null) {
       return _NoticeBox(
         tone: _NoticeTone.danger,
-        iconName: MedIcon.clock,
+        iconName: PhIcon.clock,
         headline: 'Too many failed attempts',
         body: Text.rich(
           TextSpan(
@@ -91,7 +103,7 @@ class LockoutNotice extends StatelessWidget {
     if (state.isLastAttempt) {
       return _NoticeBox(
         tone: _NoticeTone.danger,
-        iconName: MedIcon.closeCircle,
+        iconName: PhIcon.xCircle,
         headline: 'One attempt left',
         body: Text(
           'The next wrong password pauses sign-in for $_cooldownLabel. '
@@ -105,7 +117,7 @@ class LockoutNotice extends StatelessWidget {
     if (state.failedAttempts > 0 && remaining > 1) {
       return _NoticeBox(
         tone: _NoticeTone.warning,
-        iconName: MedIcon.closeCircle,
+        iconName: PhIcon.xCircle,
         // Deliberately not "that did not match" — the rejected credential is
         // already reported in its own error box, and saying it twice is
         // louder, not clearer. This box's job is the budget.

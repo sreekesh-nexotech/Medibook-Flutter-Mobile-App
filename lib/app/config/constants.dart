@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 /// Global, non-style constants: the Figma base size, animation timings, the 4/8
 /// spacing scale, radii and shadow primitives, and the demo/prototype behaviour
-/// values (banner interval, toast lifetime, demo OTP).
+/// values (banner interval, toast lifetime).
 ///
 /// Style *colors* live in `app/theme/colors.dart`; text styles in
 /// `app/theme/typography.dart`. This file holds numbers, durations and the
@@ -30,12 +30,6 @@ abstract final class AppConstants {
   static const Duration bannerInterval = Duration(milliseconds: 4000);
   static const Duration searchAutoFocusDelay = Duration(milliseconds: 260);
 
-  /// Demo affordances. Keep reachable only behind [FeatureFlags.demoMode];
-  /// never ship these on a production auth path.
-  static const String demoOtpCode = '1234';
-  static const String demoEmail = 'alexandra.johnson@example.com';
-  static const String demoPassword = 'medibook123';
-
   /// Booking token counter seed (`A-26`, increments per confirmed booking).
   static const int tokenCounterStart = 26;
 
@@ -45,9 +39,11 @@ abstract final class AppConstants {
   /// Consumed by `features/auth/application/states/auth_state.dart`.
   static const int maxLoginAttempts = 5;
 
-  /// Cooldown applied once [maxLoginAttempts] is reached. The lockout screen
-  /// counts this down; `AuthNotifier.login` refuses while it is active.
-  static const Duration loginLockoutCooldown = Duration(seconds: 60);
+  /// The server's lockout once [maxLoginAttempts] is reached: one hour
+  /// (`423 AUTH_LOCKED_OUT`, API §4). The warnings name it; the countdown
+  /// itself runs to the server's `locked_until` (BL-AUTH-032 — the warnings
+  /// used to promise 60 seconds).
+  static const Duration loginLockoutCooldown = Duration(hours: 1);
 
   /// How long a session token is treated as fresh before the repository is
   /// asked to refresh it. Informational until the data layer lands.

@@ -3,8 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../app/config/constants.dart';
-import '../../../../app/config/feature_flags.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
@@ -17,22 +15,17 @@ import '../components/auth_channel_tabs.dart';
 import '../components/auth_fields.dart';
 import '../components/field_focus_group.dart';
 import '../components/screen_fade_rise.dart';
-import '../controllers/auth_flow_draft.dart';
-import '../controllers/auth_form_controller.dart';
-import '../controllers/forgot_form_controller.dart';
-import '../controllers/verify_request.dart';
+import '../../application/providers/auth_flow_draft.dart';
+import '../../application/providers/auth_form_controller.dart';
+import '../../application/providers/forgot_form_controller.dart';
+import '../../application/providers/verify_request.dart';
 
-/// Reset Password (`/forgot`) — step one of the logged-out reset.
+/// Reset Password (`/forgot`) — step one of the logged-out reset (§4.7).
 ///
-/// ## CM-06 — either channel
-///
-/// The flow used to run on email only, which locked out any patient who had
-/// registered with a mobile number. The same [AuthChannelTabs] switch the
-/// sign-in screen uses now chooses the channel, and the chosen one is recorded
-/// in `passwordResetDraftProvider` so `/verify` and `/reset` follow it through.
-///
-/// The prefilled demo email stays behind [FeatureFlags.demoMode] — with the
-/// flag off, nothing on this screen is prefilled and no demo copy is rendered.
+/// The account may be identified by email or mobile; the code always arrives
+/// by **SMS** to the account's phone (patients reset by SMS only), so the
+/// verify screen is told the channel is SMS and shows the masked destination
+/// the backend returned.
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key});
 
@@ -42,11 +35,12 @@ class ForgotPasswordScreen extends ConsumerStatefulWidget {
 }
 
 class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
-  late final TextEditingController _email;
+  final TextEditingController _email = TextEditingController();
   final TextEditingController _phone = TextEditingController();
 
-  CountryCode _country = CountryCodes.india;
-  ResetChannel _channel = ResetChannel.email;
+  /// Fixed: the server accepts only Indian mobiles here (§2, BL-AUTH-008).
+  static const CountryCode _country = CountryCodes.india;
+  ResetChannel _channel = ResetChannel.sms;
 
   late final Map<String, TextEditingController> _controllers = {
     ForgotFields.email: _email,
@@ -61,15 +55,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       ref.read(forgotFormControllerProvider.notifier);
 
   bool get _isMobile => _channel == ResetChannel.sms;
-
-  @override
-  void initState() {
-    super.initState();
-    // Demo affordance (gated): prefill so Send Code works immediately.
-    _email = TextEditingController(
-      text: FeatureFlags.demoMode ? AppConstants.demoEmail : '',
-    );
-  }
 
   @override
   void dispose() {
@@ -89,34 +74,34 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     setState(() => _channel = channel);
   }
 
-  void _onCountryChanged(CountryCode country) {
-    setState(() => _country = country);
-    _form.onChanged(ForgotFields.phone, Validators.digitsOf(_phone.text));
-  }
-
   Future<void> _sendCode() async {
     _focus.unfocus();
 
-    final String destination;
+    final String identifier;
     if (_isMobile) {
       final digits = Validators.digitsOf(_phone.text);
       if (!_form.validateMobileForm(phone: digits)) return;
-      destination = '${_country.dialCode}$digits';
+      identifier = '${_country.dialCode}$digits';
     } else {
       if (!_form.validateEmailForm(email: _email.text)) return;
-      destination = _email.text.trim();
+      identifier = _email.text.trim();
     }
 
-    final sent = await _form.sendResetCode(
+    final challenge = await _form.sendResetCode(
       channel: _channel,
-      destination: destination,
+      identifier: identifier,
     );
-    if (!sent || !mounted) return;
+    if (challenge == null || !mounted) return;
     context.go(
       VerifyRequest(
         purpose: VerifyPurpose.passwordReset,
-        channel: _channel,
-        destination: destination,
+        // The code goes by SMS whichever identifier was typed.
+        channel: ResetChannel.sms,
+        destination: challenge.destinationMasked ?? '',
+        challengeId: challenge.challengeId,
+        codeLength: challenge.codeLength,
+        resendAfterSeconds: challenge.resendAfterSeconds,
+        expiresAt: challenge.expiresAt,
       ).path,
     );
   }
@@ -151,8 +136,8 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                           _isMobile
                               ? 'Enter your mobile number and we will text you '
                                     'a verification code.'
-                              : 'Enter your email and we will send you a '
-                                    'verification code.',
+                              : 'Enter the email on your account and we will '
+                                    'text a verification code to your mobile.',
                           style: AppText.poppins(
                             size: AppFontSize.base,
                             color: AppColors.textBody,
@@ -162,7 +147,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                         SizedBox(height: 20.h),
                         AuthChannelTabs(
                           value: _channel,
-                          caption: 'Send the code to my',
+                          caption: 'Find my account by',
                           onChanged: _onChannelChanged,
                           enabled: !form.isBusy,
                         ),
@@ -215,7 +200,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       field: ForgotFields.phone,
       controller: _phone,
       countryCode: _country,
-      onCountryChanged: _onCountryChanged,
       state: form,
       focus: _focus,
       onChanged: _onFieldChanged,

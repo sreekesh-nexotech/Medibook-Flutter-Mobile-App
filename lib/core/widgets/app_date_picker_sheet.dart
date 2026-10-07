@@ -104,14 +104,18 @@ class AppMonthCalendar extends StatefulWidget {
   /// Latest selectable day. Defaults to 90 days out.
   final DateTime? lastDay;
 
-  /// Per-day availability. Null → every in-range day is selectable.
+  /// Per-day availability. Null → a plain date picker (a date of birth, a
+  /// document date): every in-range day is selectable, and neither the
+  /// availability dots nor the legend are drawn — they describe a doctor's
+  /// slots, which such a date has none of.
   final DayAvailabilityResolver? availability;
 
   /// Fires when a selectable day is tapped.
   final ValueChanged<DateTime>? onDaySelected;
 
   /// Whether to show the "Available / Fully booked / Unavailable" key. Worth
-  /// keeping: three shades of grey are not self-explanatory.
+  /// keeping: three shades of grey are not self-explanatory. Only drawn when
+  /// [availability] is supplied.
   final bool showLegend;
 
   @override
@@ -159,13 +163,19 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
   bool get _canGoForward =>
       _visibleMonth.isBefore(DateTime(_lastDay.year, _lastDay.month));
 
+  /// A range this long (a date of birth) is walked a year at a time as well
+  /// as a month at a time.
+  bool get _showYearStepper => _lastDay.year - _firstDay.year >= 2;
+
+  /// Moves the visible month, clamped to the selectable range — a year step
+  /// from the range's edge lands on its first or last month.
   void _shiftMonth(int months) {
-    setState(() {
-      _visibleMonth = DateTime(
-        _visibleMonth.year,
-        _visibleMonth.month + months,
-      );
-    });
+    final first = DateTime(_firstDay.year, _firstDay.month);
+    final last = DateTime(_lastDay.year, _lastDay.month);
+    var target = DateTime(_visibleMonth.year, _visibleMonth.month + months);
+    if (target.isBefore(first)) target = first;
+    if (target.isAfter(last)) target = last;
+    setState(() => _visibleMonth = target);
   }
 
   DayAvailability _availabilityOf(DateTime day) {
@@ -189,6 +199,43 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // ---- Year navigation (long ranges only) ----
+        if (_showYearStepper) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AppIconButton(
+                icon: MedIcon.back,
+                size: 32,
+                semanticLabel: 'Previous year',
+                onPressed: _canGoBack ? () => _shiftMonth(-12) : null,
+              ),
+              SizedBox(width: AppSpacing.x3.w),
+              ExcludeSemantics(
+                child: Text(
+                  '${_visibleMonth.year}',
+                  style: AppText.poppins(
+                    size: AppFontSize.base,
+                    weight: AppText.semibold,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ),
+              SizedBox(width: AppSpacing.x3.w),
+              Transform.flip(
+                flipX: true,
+                child: AppIconButton(
+                  icon: MedIcon.back,
+                  size: 32,
+                  semanticLabel: 'Next year',
+                  onPressed: _canGoForward ? () => _shiftMonth(12) : null,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: AppSpacing.x1.h),
+        ],
+
         // ---- Month navigation ----
         Row(
           children: [
@@ -267,6 +314,7 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
             return _DayCell(
               day: day,
               availability: _availabilityOf(day),
+              showAvailability: widget.availability != null,
               isSelected:
                   _selected != null && AppDates.isSameDay(_selected!, day),
               isToday: AppDates.isToday(day),
@@ -275,7 +323,7 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
           },
         ),
 
-        if (widget.showLegend) ...[
+        if (widget.showLegend && widget.availability != null) ...[
           SizedBox(height: AppSpacing.x4.h),
           const _CalendarLegend(),
         ],
@@ -289,6 +337,7 @@ class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.day,
     required this.availability,
+    required this.showAvailability,
     required this.isSelected,
     required this.isToday,
     required this.onTap,
@@ -296,6 +345,9 @@ class _DayCell extends StatelessWidget {
 
   final DateTime day;
   final DayAvailability availability;
+
+  /// False on a plain date picker: no dot, and no "Available" announcement.
+  final bool showAvailability;
   final bool isSelected;
   final bool isToday;
   final VoidCallback onTap;
@@ -322,13 +374,15 @@ class _DayCell extends StatelessWidget {
 
     // The dot below the numeral is what separates "fully booked" from "not
     // consulting" — a greyed day with no explanation reads as a bug.
-    final Color? dotColor = switch (availability) {
-      DayAvailability.available =>
-        isSelected ? AppColors.textOnBrand : AppColors.success,
-      DayAvailability.fullyBooked => AppColors.danger,
-      DayAvailability.unavailable => null,
-      DayAvailability.past => null,
-    };
+    final Color? dotColor = !showAvailability
+        ? null
+        : switch (availability) {
+            DayAvailability.available =>
+              isSelected ? AppColors.textOnBrand : AppColors.success,
+            DayAvailability.fullyBooked => AppColors.danger,
+            DayAvailability.unavailable => null,
+            DayAvailability.past => null,
+          };
 
     return Semantics(
       button: _selectable,
@@ -336,10 +390,11 @@ class _DayCell extends StatelessWidget {
       selected: isSelected,
       label: AppDates.dayMonthYear(day),
       hint: switch (availability) {
-        DayAvailability.available => 'Available',
+        DayAvailability.available => showAvailability ? 'Available' : null,
         DayAvailability.fullyBooked => 'Fully booked',
-        DayAvailability.unavailable => 'Not available',
-        DayAvailability.past => 'Past',
+        DayAvailability.unavailable =>
+          showAvailability ? 'Not available' : 'Out of range',
+        DayAvailability.past => showAvailability ? 'Past' : 'Out of range',
       },
       child: ExcludeSemantics(
         child: GestureDetector(

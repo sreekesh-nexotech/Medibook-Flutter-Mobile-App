@@ -1,3 +1,4 @@
+import '../usecases/login.dart' show lockSubject;
 import '../../../../app/config/constants.dart';
 import '../../../../core/error/failure.dart';
 import '../../domain/entities/user.dart';
@@ -11,19 +12,11 @@ import '../../domain/entities/user.dart';
 /// * [AuthUnknown] — app just started, local storage not read yet. The router
 ///   shows a splash and **does not** redirect, so a returning user never
 ///   flashes the sign-in screen.
-/// * [AuthUnauthenticated] — nobody signed in. Carries the failed-attempt
-///   counter and lockout deadline (CM-05), because those outlive any one
-///   attempt and the sign-in screen has to render them.
+/// * [AuthUnauthenticated] — nobody signed in. Carries the server-announced
+///   attempts-remaining and lockout deadline (`AUTH_INVALID_CREDENTIALS` /
+///   `AUTH_LOCKED_OUT` meta), because those outlive any one attempt and the
+///   sign-in screen has to render them.
 /// * [AuthAuthenticated] — a [User] and a valid session.
-///
-/// ```dart
-/// switch (ref.watch(authProvider)) {
-///   AuthUnknown() => const SplashScreen(),
-///   AuthUnauthenticated(:final isLockedOut) when isLockedOut => LockoutScreen(),
-///   AuthUnauthenticated() => const LoginScreen(),
-///   AuthAuthenticated(:final user) => HomeShell(user: user),
-/// }
-/// ```
 sealed class AuthState {
   const AuthState();
 
@@ -36,15 +29,22 @@ sealed class AuthState {
     _ => null,
   };
 
-  /// Failed sign-in attempts recorded against this device.
-  ///
-  /// Lives on the state (not just inside a screen's controller) because the
-  /// count must survive navigating away from the sign-in screen — otherwise
-  /// the lockout is bypassed by a back-and-forth.
-  int get failedAttempts => switch (this) {
-    AuthUnauthenticated(:final failedAttempts) => failedAttempts,
-    _ => 0,
+  /// Attempts left before the server locks the account, or null when the
+  /// server has not said (no failed attempt yet).
+  int? get serverAttemptsRemaining => switch (this) {
+    AuthUnauthenticated(:final serverAttemptsRemaining) =>
+      serverAttemptsRemaining,
+    _ => null,
   };
+
+  /// Failed sign-in attempts, derived from the server's
+  /// `attempts_remaining` against [AppConstants.maxLoginAttempts].
+  int get failedAttempts {
+    final remaining = serverAttemptsRemaining;
+    if (remaining == null) return 0;
+    final failed = AppConstants.maxLoginAttempts - remaining;
+    return failed < 0 ? 0 : failed;
+  }
 
   /// When the current lockout ends, or null when there is none.
   DateTime? get lockedUntil => switch (this) {
@@ -70,10 +70,11 @@ sealed class AuthState {
     return remaining.isNegative ? Duration.zero : remaining;
   }
 
-  /// Attempts left before lockout. Zero once locked out.
+  /// Attempts left before lockout. Zero once locked out; the full budget when
+  /// the server has not yet reported a failure.
   int get attemptsRemaining {
-    final left = AppConstants.maxLoginAttempts - failedAttempts;
-    return left < 0 ? 0 : left;
+    if (isLockedOut) return 0;
+    return serverAttemptsRemaining ?? AppConstants.maxLoginAttempts;
   }
 
   /// True once the user is one failed attempt from a lockout — the point at
@@ -85,6 +86,18 @@ sealed class AuthState {
     AuthUnauthenticated(:final failure) => failure,
     _ => null,
   };
+
+  /// This state as it applies to signing in to [identifier]: the attempt
+  /// count and lockout belong to one account, so for any other account they
+  /// are dropped (BL-AUTH-035). A lockout remembered without an account
+  /// still applies to all.
+  AuthState scopedTo(String identifier) {
+    final self = this;
+    if (self is! AuthUnauthenticated) return self;
+    final subject = self.subject;
+    if (subject == null || subject == lockSubject(identifier)) return self;
+    return self.copyWith(clearAttempts: true, clearLockout: true);
+  }
 }
 
 /// Startup: the stored session has not been read yet. Render a splash, do not
@@ -105,14 +118,20 @@ class AuthUnknown extends AuthState {
 /// Nobody is signed in.
 class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated({
-    this.failedAttempts = 0,
+    this.serverAttemptsRemaining,
     this.lockedUntil,
     this.failure,
     this.isSubmitting = false,
+    this.subject,
   });
 
+  /// The account ([lockSubject]) that [serverAttemptsRemaining] and
+  /// [lockedUntil] belong to, or null when they are not tied to one.
+  final String? subject;
+
+  /// `meta.attempts_remaining` from the last rejected attempt, or null.
   @override
-  final int failedAttempts;
+  final int? serverAttemptsRemaining;
 
   @override
   final DateTime? lockedUntil;
@@ -127,7 +146,8 @@ class AuthUnauthenticated extends AuthState {
   final bool isSubmitting;
 
   AuthUnauthenticated copyWith({
-    int? failedAttempts,
+    int? serverAttemptsRemaining,
+    bool clearAttempts = false,
     DateTime? lockedUntil,
     bool clearLockout = false,
     Failure? failure,
@@ -135,7 +155,10 @@ class AuthUnauthenticated extends AuthState {
     bool? isSubmitting,
   }) {
     return AuthUnauthenticated(
-      failedAttempts: failedAttempts ?? this.failedAttempts,
+      subject: subject,
+      serverAttemptsRemaining: clearAttempts
+          ? null
+          : (serverAttemptsRemaining ?? this.serverAttemptsRemaining),
       lockedUntil: clearLockout ? null : (lockedUntil ?? this.lockedUntil),
       failure: clearFailure ? null : (failure ?? this.failure),
       isSubmitting: isSubmitting ?? this.isSubmitting,
@@ -145,46 +168,54 @@ class AuthUnauthenticated extends AuthState {
   @override
   bool operator ==(Object other) =>
       other is AuthUnauthenticated &&
-      other.failedAttempts == failedAttempts &&
+      other.serverAttemptsRemaining == serverAttemptsRemaining &&
       other.lockedUntil == lockedUntil &&
       other.failure == failure &&
-      other.isSubmitting == isSubmitting;
+      other.isSubmitting == isSubmitting &&
+      other.subject == subject;
 
   @override
-  int get hashCode =>
-      Object.hash(failedAttempts, lockedUntil, failure, isSubmitting);
+  int get hashCode => Object.hash(
+    serverAttemptsRemaining,
+    lockedUntil,
+    failure,
+    isSubmitting,
+    subject,
+  );
 
   @override
   String toString() =>
-      'AuthUnauthenticated(attempts: $failedAttempts, '
+      'AuthUnauthenticated(attemptsRemaining: $serverAttemptsRemaining, '
       'lockedUntil: ${lockedUntil?.toIso8601String()}, '
       'failure: ${failure?.code})';
 }
 
 /// A user is signed in.
 class AuthAuthenticated extends AuthState {
-  const AuthAuthenticated({required this.user, required this.session});
+  const AuthAuthenticated({required this.user, this.selfPersonId});
 
   @override
   final User user;
 
-  /// The live credential. Never rendered; the UI reads [user].
-  final AuthSession session;
+  /// The `person_id` for "book for myself" (§4.2), when known. Null on an
+  /// account with no self person (the persons list is empty) — the booking
+  /// flow then asks the user to pick or add a family member.
+  final String? selfPersonId;
 
-  AuthAuthenticated copyWith({User? user, AuthSession? session}) =>
+  AuthAuthenticated copyWith({User? user, String? selfPersonId}) =>
       AuthAuthenticated(
         user: user ?? this.user,
-        session: session ?? this.session,
+        selfPersonId: selfPersonId ?? this.selfPersonId,
       );
 
   @override
   bool operator ==(Object other) =>
       other is AuthAuthenticated &&
       other.user == user &&
-      other.session.accessToken == session.accessToken;
+      other.selfPersonId == selfPersonId;
 
   @override
-  int get hashCode => Object.hash(user, session.accessToken);
+  int get hashCode => Object.hash(user, selfPersonId);
 
   @override
   String toString() => 'AuthAuthenticated(${user.id})';

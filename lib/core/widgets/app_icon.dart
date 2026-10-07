@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// Canonical Medibook icon names (Iconsax line/bold set + custom bottom-nav
-/// glyphs). Each maps to an SVG asset exported from the design system's exact
-/// path data (`assets/icons/<name>.svg`). Glyphs paint with a single color
-/// (the design's `currentColor` semantics).
+/// Canonical Medibook icon names — the Iconsax line/bold set the design
+/// system's components render (`Button` leading icons, `IconButton`, `Input`
+/// prefixes, `Rating` stars) plus the custom bottom-nav glyphs. Each maps to an
+/// SVG asset exported from the design system's exact path data
+/// (`assets/icons/<name>.svg`). Glyphs paint with a single color (the design's
+/// `currentColor` semantics).
+///
+/// The screens themselves draw a second family inline — see [PhIcon] and
+/// [DeptIcon]; pick the family the design uses at that spot, not by meaning.
 abstract final class MedIcon {
   MedIcon._();
 
@@ -33,8 +38,64 @@ abstract final class MedIcon {
   static String bold(String name) => '$name-bold';
 }
 
-/// Renders a Medibook icon from its SVG asset, recolored to [color]
-/// (mirrors the design system's `currentColor` painting).
+/// The Phosphor glyphs the design draws inline (regular weight unless the
+/// name says otherwise): meta rows, empty states, notices, chips, sheet
+/// close/clear buttons, section marks and the onboarding tags. Exact path
+/// data from the design's inline `<svg viewBox="0 0 256 256">` markup and its
+/// `assets/ui/*-navy.svg` files (`assets/icons/ph-<name>.svg`).
+abstract final class PhIcon {
+  PhIcon._();
+
+  static const String magnifyingGlass = 'ph-magnifying-glass';
+  static const String mapPin = 'ph-map-pin';
+  static const String starFill = 'ph-star-fill';
+  static const String funnelSimple = 'ph-funnel-simple';
+  static const String clock = 'ph-clock';
+  static const String videoCamera = 'ph-video-camera';
+  static const String calendarBlank = 'ph-calendar-blank';
+  static const String plus = 'ph-plus';
+  static const String folder = 'ph-folder';
+  static const String pencilSimple = 'ph-pencil-simple';
+  static const String bell = 'ph-bell';
+  static const String caretLeft = 'ph-caret-left';
+  static const String x = 'ph-x';
+  static const String xCircle = 'ph-x-circle';
+  static const String checkBold = 'ph-check-bold';
+  static const String firstAid = 'ph-first-aid';
+  static const String user = 'ph-user';
+  static const String eye = 'ph-eye';
+  static const String buildings = 'ph-buildings';
+  static const String downloadSimple = 'ph-download-simple';
+  static const String warningCircleFill = 'ph-warning-circle-fill';
+}
+
+/// The Healthicons department marks the design uses for speciality tiles and
+/// chips (`assets/health-icons/<name>.svg`, 48-unit box): one per seeded
+/// department plus the Home "Available Services" set
+/// (`assets/icons/dept-<name>.svg`).
+abstract final class DeptIcon {
+  DeptIcon._();
+
+  static const String general = 'dept-general';
+  static const String cardiology = 'dept-cardiology';
+  static const String orthopedics = 'dept-orthopedics';
+  static const String dermatology = 'dept-dermatology';
+  static const String womensHealth = 'dept-womens-health';
+  static const String paediatrics = 'dept-paediatrics';
+  static const String ent = 'dept-ent';
+  static const String mentalWellness = 'dept-mental-wellness';
+  static const String eyeCare = 'dept-eye-care';
+  static const String dental = 'dept-dental';
+  static const String neurology = 'dept-neurology';
+  static const String pulmonology = 'dept-pulmonology';
+  static const String gastroenterology = 'dept-gastroenterology';
+  static const String nephrology = 'dept-nephrology';
+  static const String urology = 'dept-urology';
+  static const String endocrinology = 'dept-endocrinology';
+}
+
+/// Renders a Medibook icon ([MedIcon], [PhIcon] or [DeptIcon]) from its SVG
+/// asset, recolored to [color] (mirrors the design's `currentColor` painting).
 ///
 /// [size] is the raw design px; it is `.r`-scaled here so a square glyph scales
 /// uniformly. Unknown assets render nothing (the DS `Icon` returned `null`).

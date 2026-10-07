@@ -293,26 +293,32 @@ class AppSkeletonList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding:
-          padding ??
-          EdgeInsets.symmetric(
-            horizontal: AppSpacing.x5.w,
-            vertical: AppSpacing.x4.h,
-          ),
-      child: Column(
-        children: [
-          for (var i = 0; i < count; i++) ...[
-            if (i > 0) SizedBox(height: itemGap.h),
-            // Excluded from semantics: a screen reader should hear "loading",
-            // announced once by AppLoadingView, not three fake cards.
-            ExcludeSemantics(
-              child: tile
-                  ? const AppSkeletonListTile()
-                  : const AppSkeletonCard(),
+    // Screens use this on its own (not inside AppLoadingView), so it carries
+    // the one "Loading…" a screen reader hears (Screen Coverage pass); the
+    // fake cards themselves stay silent.
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: context.l10n.loading,
+      child: Padding(
+        padding:
+            padding ??
+            EdgeInsets.symmetric(
+              horizontal: AppSpacing.x5.w,
+              vertical: AppSpacing.x4.h,
             ),
+        child: Column(
+          children: [
+            for (var i = 0; i < count; i++) ...[
+              if (i > 0) SizedBox(height: itemGap.h),
+              ExcludeSemantics(
+                child: tile
+                    ? const AppSkeletonListTile()
+                    : const AppSkeletonCard(),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

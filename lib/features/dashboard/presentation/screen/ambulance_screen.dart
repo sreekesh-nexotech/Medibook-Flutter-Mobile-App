@@ -1,36 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/support_content.dart';
-import '../../../../core/mock_data/seed_providers.dart';
-import '../../../../core/mock_data/stores/profile_store.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/route_arrival.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
-import '../../../../core/widgets/app_tag.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../../../core/widgets/toast/toast_controller.dart';
 import '../../../booking/presentation/components/flow_screen_enter.dart';
+import '../../../common/cached/presentation/components/cached_status_bar.dart';
+import '../../../profile/application/providers/profile_provider.dart';
+import '../../../support/application/providers/support_provider.dart';
+import '../../../support/domain/entities/ambulance_provider.dart';
 
 /// Call an ambulance (CM-44, CM-45, CM-46). Route: `/ambulance`.
 ///
-/// The audit listed this as a whole missing screen: the app had no emergency
-/// path at all. It is reachable from Home's prominent emergency row and from
-/// an appointment's detail (the appointments feature owns that entry point).
+/// Reachable from Home's prominent emergency row and from an appointment's
+/// detail (the appointments feature owns that entry point). The operator
+/// directory is `GET /patient/ambulance/providers` (§14) through the support
+/// feature's cached controller — unfiltered, because the account carries no
+/// home city; the emergency contact is the profile feature's primary one.
 ///
-/// **The call itself is stubbed, deliberately.** There is no `url_launcher` in
-/// this build and none may be added, so no control here can place a call.
-/// Rather than a button that appears to dial and does nothing — or worse, one
-/// that reports a dispatched ambulance — each row shows the number in full,
-/// large enough to read out or type into the dialler, and the action declares
-/// itself with `AppButton(stubbed: true)` + [showStubbedToast] (THE LAW).
+/// **"Call now" opens the phone's dialler** with the operator's number
+/// (`tel:` through `url_launcher`); the patient places the call. This is a
+/// directory to call from — there is no ambulance request endpoint (§18), so
+/// nothing here claims a dispatch. Each row also shows the number in full,
+/// large enough to read out, and a device with no dialler is told to dial it
+/// by hand rather than left with a button that does nothing.
 ///
 /// Router wiring:
 /// ```dart
@@ -44,66 +50,105 @@ class AmbulanceScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final providers = ref.watch(ambulanceProvidersProvider);
+    final directory = ref.watch(
+      ambulanceProvidersProvider(AmbulanceFilter.none),
+    );
+    final providers = directory.value ?? const <AmbulanceProvider>[];
     final emergencyContact = ref.watch(primaryEmergencyContactProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.bgApp,
-      body: SafeArea(
-        child: FlowScreenEnter(
-          child: Column(
-            children: [
-              AppInnerHeader(
-                title: 'Emergency',
-                onBack: () => context.canPop()
-                    ? context.pop()
-                    : context.go(AppRoutes.home),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(20.w, 6.h, 20.w, 28.h),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _DiallerNotice(),
-                      SizedBox(height: AppSpacing.x4.h),
-                      Text(
-                        'Ambulance services',
-                        style: AppText.poppins(
-                          size: AppFontSize.body,
-                          weight: AppText.semibold,
-                          color: AppColors.textStrong,
+    return RouteArrival(
+      onArrive: () {
+        ref.invalidate(ambulanceProvidersProvider);
+        ref.invalidate(primaryEmergencyContactProvider);
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bgApp,
+        body: SafeArea(
+          child: FlowScreenEnter(
+            child: Column(
+              children: [
+                AppInnerHeader(
+                  title: 'Emergency',
+                  onBack: () => context.canPop()
+                      ? context.pop()
+                      : context.go(AppRoutes.home),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(20.w, 6.h, 20.w, 28.h),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _DiallerNotice(),
+                        SizedBox(height: AppSpacing.x4.h),
+                        Text(
+                          'Ambulance services',
+                          style: AppText.poppins(
+                            size: AppFontSize.body,
+                            weight: AppText.semibold,
+                            color: AppColors.textStrong,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: AppSpacing.x3.h),
-                      if (providers.isEmpty)
-                        AppEmptyView(
-                          iconName: MedIcon.hospital,
-                          headline: 'No operators listed',
-                          body:
-                              'We could not load the ambulance directory. '
-                              'The national emergency number is 108.',
-                          actionLabel: 'Contact support',
-                          onAction: () => context.push(AppRoutes.support),
-                        )
-                      else
-                        for (final provider in providers) ...[
-                          _AmbulanceRow(provider: provider),
-                          SizedBox(height: AppSpacing.x3.h),
-                        ],
-                      SizedBox(height: AppSpacing.x3.h),
-                      _EmergencyContactCard(
-                        name: emergencyContact?.name,
-                        relation: emergencyContact?.relation,
-                        phone: emergencyContact?.phone,
-                        onManage: () =>
-                            context.push(AppRoutes.profileEmergency),
-                      ),
-                    ],
+                        SizedBox(height: AppSpacing.x3.h),
+                        CachedStatusBar(
+                          state: directory,
+                          onRefresh: () => ref
+                              .read(
+                                ambulanceProvidersProvider(
+                                  AmbulanceFilter.none,
+                                ).notifier,
+                              )
+                              .refresh(force: true),
+                        ),
+                        if (directory.isLoading)
+                          const AppLoadingView(label: 'Loading operators…')
+                        else if (providers.isEmpty)
+                          AppEmptyView(
+                            iconName: PhIcon.firstAid,
+                            headline: 'No operators listed',
+                            body:
+                                'We could not load the ambulance directory. '
+                                'The national emergency number is 108.',
+                            // A failed load can be tried again here, not
+                            // only from the bar above (BL-SUP-020).
+                            actionLabel: directory.failure != null
+                                ? 'Try again'
+                                : 'Contact support',
+                            onAction: directory.failure != null
+                                ? () => ref
+                                      .read(
+                                        ambulanceProvidersProvider(
+                                          AmbulanceFilter.none,
+                                        ).notifier,
+                                      )
+                                      .refresh(force: true)
+                                : () => context.push(AppRoutes.support),
+                            secondaryLabel: directory.failure != null
+                                ? 'Contact support'
+                                : null,
+                            onSecondary: directory.failure != null
+                                ? () => context.push(AppRoutes.support)
+                                : null,
+                          )
+                        else
+                          for (final provider in providers) ...[
+                            _AmbulanceRow(provider: provider),
+                            SizedBox(height: AppSpacing.x3.h),
+                          ],
+                        SizedBox(height: AppSpacing.x3.h),
+                        _EmergencyContactCard(
+                          name: emergencyContact?.name,
+                          relation: emergencyContact?.relation,
+                          phone: emergencyContact?.phoneE164,
+                          onManage: () =>
+                              context.push(AppRoutes.profileEmergency),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -124,7 +169,7 @@ class _DiallerNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppIcon(MedIcon.bell, size: 20, color: AppColors.dangerText),
+          AppIcon(PhIcon.bell, size: 20, color: AppColors.dangerText),
           SizedBox(width: AppSpacing.x3.w),
           Expanded(
             child: Column(
@@ -141,9 +186,9 @@ class _DiallerNotice extends StatelessWidget {
                 ),
                 SizedBox(height: 4.h),
                 Text(
-                  'This build cannot place calls, so the numbers below are '
-                  'shown in full for you to dial. 108 is the national '
-                  'emergency line and is free.',
+                  '"Call now" opens your dialler with the number filled '
+                  'in — you place the call. 108 is the national emergency '
+                  'line and is free.',
                   style: AppText.poppins(
                     size: AppFontSize.sm,
                     color: AppColors.textPrimary,
@@ -159,11 +204,25 @@ class _DiallerNotice extends StatelessWidget {
   }
 }
 
-/// One operator: name, ETA, area, capability tags and the number itself.
+/// One operator: name, ETA, locality and the number itself.
 class _AmbulanceRow extends ConsumerWidget {
   const _AmbulanceRow({required this.provider});
 
   final AmbulanceProvider provider;
+
+  /// Hands the number to the dialler. Nothing is dialled by the app itself.
+  Future<void> _dial(BuildContext context, WidgetRef ref) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(Uri(scheme: 'tel', path: provider.phoneE164));
+    } on PlatformException {
+      opened = false;
+    }
+    if (opened || !context.mounted) return;
+    ref
+        .read(toastControllerProvider.notifier)
+        .show('No dialler on this device. Dial ${provider.phoneE164}.');
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -191,7 +250,11 @@ class _AmbulanceRow extends ConsumerWidget {
                     ),
                     SizedBox(height: 2.h),
                     Text(
-                      '${provider.etaLabel} · ${provider.area}',
+                      [
+                        if (provider.etaLabel != null) provider.etaLabel!,
+                        if (provider.localityLabel.isNotEmpty)
+                          provider.localityLabel,
+                      ].join(' · '),
                       style: AppText.poppins(
                         size: AppFontSize.xs,
                         color: AppColors.textMuted,
@@ -200,13 +263,6 @@ class _AmbulanceRow extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (provider.tags.isNotEmpty)
-                Wrap(
-                  spacing: AppSpacing.x1.w,
-                  children: [
-                    for (final tag in provider.tags) AppTag(label: tag),
-                  ],
-                ),
             ],
           ),
           SizedBox(height: AppSpacing.x3.h),
@@ -224,7 +280,7 @@ class _AmbulanceRow extends ConsumerWidget {
               children: [
                 ExcludeSemantics(
                   child: AppIcon(
-                    MedIcon.bell,
+                    PhIcon.bell,
                     size: 15,
                     color: AppColors.textMuted,
                   ),
@@ -232,7 +288,7 @@ class _AmbulanceRow extends ConsumerWidget {
                 SizedBox(width: AppSpacing.x2.w),
                 Expanded(
                   child: Text(
-                    provider.phone,
+                    provider.phoneE164,
                     style: AppText.poppins(
                       size: AppFontSize.body,
                       weight: AppText.bold,
@@ -249,12 +305,8 @@ class _AmbulanceRow extends ConsumerWidget {
             variant: AppButtonVariant.danger,
             fullWidth: true,
             leadingIcon: MedIcon.bell,
-            stubbed: true,
-            semanticLabel:
-                'Call ${provider.name} on ${provider.phone} — dialling is '
-                'not available in this build',
-            onPressed: () =>
-                showStubbedToast(context, ref, 'Calling ${provider.name}'),
+            semanticLabel: 'Call ${provider.name} on ${provider.phoneE164}',
+            onPressed: () => _dial(context, ref),
           ),
         ],
       ),
@@ -282,7 +334,7 @@ class _EmergencyContactCard extends StatelessWidget {
     final name = this.name;
     if (name == null) {
       return AppEmptyView(
-        iconName: MedIcon.records,
+        iconName: PhIcon.folder,
         headline: 'No emergency contact saved',
         body:
             'Add one so the hospital knows who to call if you cannot speak '

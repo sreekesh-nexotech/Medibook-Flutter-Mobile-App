@@ -28,7 +28,7 @@ abstract final class FeatureFlags {
   FeatureFlags._();
 
   /// Enables demo affordances: prefilled credentials
-  /// ([AppConstants.demoEmail]/[AppConstants.demoPassword]), the
+  /// (`DemoCredentials.email` / `DemoCredentials.password`), the
   /// "Demo code: 1234" hint and the reviewer screen-jump menu.
   ///
   /// The demo constants themselves stay in `AppConstants` — gating them is the
@@ -48,4 +48,18 @@ abstract final class FeatureFlags {
 
   /// Whether crashes are reported to a backend.
   static const bool crashReportingEnabled = Env.crashReportingEnabled;
+}
+
+/// The client-review build's sign-in (CL CODE-010). Every reference sits
+/// behind the compile-time constant `FeatureFlags.demoMode`, which is false
+/// unless the build passes `--dart-define=MEDIBOOK_DEMO=true`, so a normal
+/// release build compiles these strings out entirely (checked by searching
+/// the release `libapp.so`); `EnvLoader` also refuses a production build
+/// with demo mode on. They are not real accounts on any server.
+abstract final class DemoCredentials {
+  DemoCredentials._();
+
+  static const String otpCode = '1234';
+  static const String email = 'alexandra.johnson@example.com';
+  static const String password = 'medibook123';
 }

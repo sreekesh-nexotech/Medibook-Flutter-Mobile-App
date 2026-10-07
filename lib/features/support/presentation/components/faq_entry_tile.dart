@@ -4,9 +4,10 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/support_content.dart';
 import '../../../../core/utils/motion.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../domain/entities/faq.dart';
+import 'legal_prose.dart';
 
 /// One expandable question-and-answer row on the FAQ screen (CM-52).
 ///
@@ -15,6 +16,9 @@ import '../../../../core/widgets/app_card.dart';
 /// button with its current state. The open/close animation runs through
 /// [MotionContext.motion], so a viewer with "reduce motion" on gets an instant
 /// change instead of a height animation.
+///
+/// The answer is `answer_md` (§3.3) — rendered by [LegalProse], the feature's
+/// no-dependency Markdown subset (headings, paragraphs, bullets, bold).
 ///
 /// Pure presentation: [isExpanded] and [onToggle] are owned by
 /// `faqControllerProvider`, so expansion survives a rebuild and a search.
@@ -72,14 +76,7 @@ class FaqEntryTile extends StatelessWidget {
                 child: isExpanded
                     ? Padding(
                         padding: EdgeInsets.only(top: AppSpacing.x3.h),
-                        child: Text(
-                          entry.answer,
-                          style: AppText.poppins(
-                            size: AppFontSize.base,
-                            color: AppColors.textBody,
-                            height: 1.6,
-                          ),
-                        ),
+                        child: LegalProse.fromBody(entry.answerMd),
                       )
                     : const SizedBox(width: double.infinity),
               ),

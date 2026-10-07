@@ -22,18 +22,18 @@ import '../data_sources/remote/auth_api.dart';
 ///   when the server call fails — the server forgetting the token is a nicety;
 ///   the device forgetting it is the requirement.
 ///
-/// The JSON→entity mapping lives in the private helpers at the bottom. When
-/// codegen (`freezed`/`json_serializable`) is introduced, those are the only
-/// methods that change.
+/// The JSON→entity mapping lives in [AuthMappers] at the bottom; it is the
+/// only place the wire field names are spelled.
 class AuthRepositoryImpl implements AuthRepository {
-  const AuthRepositoryImpl({
-    required AuthApi api,
-    required AuthLocalDataSource local,
-  }) : _api = api,
-       _local = local;
+  AuthRepositoryImpl({required AuthApi api, required AuthLocalDataSource local})
+    : _api = api,
+      _local = local;
 
   final AuthApi _api;
   final AuthLocalDataSource _local;
+
+  /// The one refresh in flight, shared by every caller — see [refreshSession].
+  Future<AuthSession>? _refreshInFlight;
 
   @override
   Future<User?> currentUser() => _local.readUser();
@@ -41,62 +41,142 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<bool> hasValidSession() async {
     final session = await _local.readSession();
-    return session?.isValid ?? false;
+    // The access token may have expired; the refresh token keeps the session
+    // alive for up to 30 days, so "a session exists" is what matters here.
+    return session != null && session.accessToken.isNotEmpty;
   }
 
   @override
-  Future<AuthResult> login({required String email, required String password}) =>
-      _authenticate(
-        () => _api.login(email: email, password: password),
-        method: AuthMethod.password,
-      );
+  Future<String?> accessToken() => _local.readAccessToken();
+
+  // ---- Sign-in ----
 
   @override
-  Future<AuthResult> loginWithOtp({
-    required String phone,
-    required String code,
-  }) => _authenticate(
-    () => _api.loginWithOtp(phone: phone, code: code),
-    method: AuthMethod.otp,
-  );
-
-  @override
-  Future<void> requestOtp({required String phone}) =>
-      _run(() => _api.requestOtp(phone: phone));
-
-  @override
-  Future<AuthResult> signUp({
-    required String name,
-    required String email,
-    required String phone,
+  Future<AuthResult> loginWithPassword({
+    required String identifier,
     required String password,
   }) => _authenticate(
-    () =>
-        _api.signUp(name: name, email: email, phone: phone, password: password),
+    () => _api.loginWithPassword(identifier: identifier, password: password),
     method: AuthMethod.password,
   );
 
   @override
-  Future<AuthSession> refreshSession() async {
+  Future<OtpChallenge> startOtpLogin({required String phoneE164}) =>
+      _challenge(() => _api.startOtpLogin(phoneE164: phoneE164));
+
+  @override
+  Future<AuthResult> verifyOtpLogin({
+    required String challengeId,
+    required String code,
+  }) => _authenticate(
+    () => _api.verifyOtpLogin(challengeId: challengeId, code: code),
+    method: AuthMethod.otp,
+  );
+
+  @override
+  Future<OtpChallenge> resendOtp({required String challengeId}) =>
+      _challenge(() => _api.resendOtp(challengeId: challengeId));
+
+  // ---- Sign-up ----
+
+  @override
+  Future<OtpChallenge> startSignup(SignupRequest request) =>
+      _challenge(() => _api.startSignup(request));
+
+  @override
+  Future<AuthResult> verifySignup({
+    required String challengeId,
+    required String code,
+  }) async {
+    final result = await _authenticate(
+      () => _api.verifySignup(challengeId: challengeId, code: code),
+      method: AuthMethod.otp,
+    );
+    Analytics.track(AnalyticsEvent.signUpCompleted);
+    return result;
+  }
+
+  // ---- Password reset ----
+
+  @override
+  Future<OtpChallenge> startPasswordReset({required String identifier}) =>
+      _challenge(() => _api.startPasswordReset(identifier: identifier));
+
+  @override
+  Future<PasswordResetGrant> verifyPasswordReset({
+    required String challengeId,
+    required String code,
+  }) async {
+    final payload = await _run(
+      () => _api.verifyPasswordReset(challengeId: challengeId, code: code),
+    );
+    final token = payload['reset_token'];
+    if (token is! String || token.isEmpty) {
+      throw const ServerFailure(
+        debugMessage: 'forgot/verify has no reset_token',
+      );
+    }
+    return PasswordResetGrant(
+      resetToken: token,
+      expiresAt: AuthMappers.dateTime(payload['expires_at']),
+    );
+  }
+
+  @override
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+  }) => _run(
+    () => _api.resetPassword(resetToken: resetToken, newPassword: newPassword),
+  );
+
+  // ---- Session lifecycle ----
+
+  @override
+  Future<AuthSession> refreshSession() {
+    // Single-flight (§1.4). The API client and the WebSocket owners all end
+    // up here; a second call made while one is in flight would present the
+    // same refresh token again, which the server answers by revoking the
+    // whole session. Callers that overlap share one server call instead.
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+    final attempt = _refresh();
+    _refreshInFlight = attempt;
+    return attempt.whenComplete(() {
+      if (identical(_refreshInFlight, attempt)) _refreshInFlight = null;
+    });
+  }
+
+  Future<AuthSession> _refresh() async {
     final existing = await _local.readSession();
     final refreshToken = existing?.refreshToken;
     if (refreshToken == null || refreshToken.isEmpty) {
       throw const UnauthorizedFailure(
+        apiCode: ApiErrorCodes.authSessionRevoked,
         debugMessage: 'refreshSession called with no stored refresh token',
       );
     }
     final payload = await _run(() => _api.refresh(refreshToken: refreshToken));
-    final session = _sessionFrom(payload);
+    final session = AuthMappers.session(payload);
+    // Rotation: the old refresh token is dead the moment this returns (§1.4).
     await _local.writeSession(session);
     return session;
   }
 
   @override
-  Future<void> logout() async {
+  Future<void> logout() => _endSession(_api.logout);
+
+  @override
+  Future<void> logoutAll() => _endSession(_api.logoutAll);
+
+  @override
+  Future<void> clearLocalSession() => _clearLocal();
+
+  Future<void> _endSession(Future<void> Function() serverCall) async {
     // Best-effort server call — a dead network must not strand a signed-in
     // session on the device.
     try {
-      await _api.logout();
+      await serverCall();
     } catch (error, stackTrace) {
       AppLogger.warning(
         'Server logout failed; clearing local session anyway',
@@ -105,7 +185,10 @@ class AuthRepositoryImpl implements AuthRepository {
       );
       CrashReporting.recordError(error, stackTrace, reason: 'logout:server');
     }
+    await _clearLocal();
+  }
 
+  Future<void> _clearLocal() async {
     // The part that must always happen (CM-53).
     await _local.clear();
     Analytics.track(AnalyticsEvent.loggedOut);
@@ -113,23 +196,23 @@ class AuthRepositoryImpl implements AuthRepository {
     CrashReporting.reset();
   }
 
-  @override
-  Future<void> requestPasswordReset({required String email}) =>
-      _run(() => _api.requestPasswordReset(email: email));
+  // ---- Account ----
 
   @override
-  Future<void> resetPassword({
-    required String email,
-    required String code,
-    required String newPassword,
-  }) => _run(
-    () =>
-        _api.resetPassword(email: email, code: code, newPassword: newPassword),
-  );
+  Future<User> fetchMe() async {
+    final payload = await _run(_api.me);
+    final cached = await _local.readUser();
+    final user = AuthMappers.account(
+      payload,
+      method: cached?.authMethod ?? AuthMethod.password,
+    );
+    await _local.writeUser(user);
+    return user;
+  }
 
   @override
   Future<void> changePassword({
-    required String currentPassword,
+    String? currentPassword,
     required String newPassword,
   }) => _run(
     () => _api.changePassword(
@@ -138,27 +221,29 @@ class AuthRepositoryImpl implements AuthRepository {
     ),
   );
 
-  // ---- Lockout bookkeeping (CM-05), persisted by the local data source ----
+  // ---- Lockout mirror ----
 
   @override
-  Future<int> registerFailedAttempt() => _local.incrementFailedAttempts();
+  Future<DateTime?> lockedUntil({String? identifier}) async {
+    final until = await _local.readLockedUntil();
+    if (until == null || identifier == null) return until;
+    final owner = await _local.readLockedIdentifier();
+    return owner == null || owner == identifier ? until : null;
+  }
 
   @override
-  Future<int> failedAttempts() => _local.readFailedAttempts();
+  Future<String?> lockedIdentifier() => _local.readLockedIdentifier();
 
   @override
-  Future<DateTime?> lockedUntil() => _local.readLockedUntil();
-
-  @override
-  Future<void> lockOut(DateTime until) async {
-    await _local.writeLockedUntil(until);
+  Future<void> rememberLockout(DateTime until, {String? identifier}) async {
+    await _local.writeLockedUntil(until, identifier: identifier);
     Analytics.track(AnalyticsEvent.loginLockedOut, {
       'until': until.toIso8601String(),
     });
   }
 
   @override
-  Future<void> clearFailedAttempts() => _local.clearFailedAttempts();
+  Future<void> clearLockout() => _local.clearLockout();
 
   // ---- Internals ----
 
@@ -168,10 +253,17 @@ class AuthRepositoryImpl implements AuthRepository {
       return await request();
     } catch (error, stackTrace) {
       final failure = NetworkExceptions.toFailure(error, stackTrace);
-      CrashReporting.recordFailure(failure, context: {'layer': 'auth'});
+      // Credential rejections are expected traffic, not incidents.
+      if (failure is! UnauthorizedFailure || failure.sessionExpired) {
+        CrashReporting.recordFailure(failure, context: {'layer': 'auth'});
+      }
       throw failure;
     }
   }
+
+  Future<OtpChallenge> _challenge(
+    Future<Map<String, Object?>> Function() request,
+  ) async => AuthMappers.challenge(await _run(request));
 
   /// Sign-in / sign-up: call, map, persist, identify.
   Future<AuthResult> _authenticate(
@@ -179,68 +271,126 @@ class AuthRepositoryImpl implements AuthRepository {
     required AuthMethod method,
   }) async {
     final payload = await _run(request);
-    final user = _userFrom(payload, method: method);
-    final session = _sessionFrom(payload);
+    final user = AuthMappers.user(
+      AuthMappers.requireMap(payload['user'], 'user'),
+      method: method,
+      profile: payload['profile'],
+    );
+    final session = AuthMappers.session(payload);
+    final self = payload['person_self'];
+    final selfPersonId = self is Map ? self['id']?.toString() : null;
 
     await _local.writeSession(session);
     await _local.writeUser(user);
-    await _local.clearFailedAttempts();
+    await _local.clearLockout();
 
     Analytics.identify(user.id);
     CrashReporting.identify(user.id);
     Analytics.track(AnalyticsEvent.loginSucceeded, {'method': method.name});
 
-    return (user: user, session: session);
+    return AuthResult(user: user, session: session, selfPersonId: selfPersonId);
   }
+}
 
-  /// Maps the `user` object out of an auth payload.
+/// Wire → entity mapping for the auth payloads (§4, §5.1). Public so the
+/// profile feature can reuse the `/me` shape.
+abstract final class AuthMappers {
+  AuthMappers._();
+
+  /// `GET /patient/me` → [User] (user + profile merged).
+  static User account(
+    Map<String, Object?> payload, {
+    AuthMethod method = AuthMethod.password,
+  }) => user(
+    requireMap(payload['user'], 'user'),
+    method: method,
+    profile: payload['profile'],
+  );
+
+  /// A `User` object, optionally merged with a `profile` object.
   ///
   /// Throws a [ServerFailure] rather than returning a half-built entity when
   /// the response is missing an id — a `User` with no id would corrupt every
   /// cache key that hashes the account (HIVE spec, Scenario 10).
-  User _userFrom(Map<String, Object?> payload, {required AuthMethod method}) {
-    final raw = payload['user'];
-    final map = raw is Map<String, Object?> ? raw : payload;
+  static User user(
+    Map<String, Object?> map, {
+    required AuthMethod method,
+    Object? profile,
+  }) {
     final id = map['id'];
     if (id is! String || id.isEmpty) {
       throw const ServerFailure(debugMessage: 'auth payload has no user.id');
     }
-    final dob = map['date_of_birth'];
+    final p = profile is Map ? profile.cast<String, Object?>() : null;
+    final allergies = p?['allergies'];
     return User(
       id: id,
-      name: map['name'] as String? ?? '',
-      email: map['email'] as String? ?? '',
-      phone: map['phone'] as String?,
-      avatarUrl: map['avatar_url'] as String?,
-      dateOfBirth: dob is String ? DateTime.tryParse(dob) : null,
-      gender: map['gender'] as String?,
-      bloodGroup: map['blood_group'] as String?,
+      firstName: map['first_name']?.toString() ?? '',
+      lastName: map['last_name'] as String?,
+      email: map['email'] as String?,
+      phoneE164: map['phone_e164'] as String?,
+      alternatePhoneE164: map['alternate_phone_e164'] as String?,
+      hasPassword: map['has_password'] == true,
+      status: UserStatus.fromWire(map['status'] as String?),
+      locale: map['locale'] as String? ?? 'en-IN',
+      timezone: map['timezone'] as String? ?? 'Asia/Kolkata',
+      version: (map['version'] as num?)?.toInt() ?? 1,
+      emailVerified: map['email_verified_at'] != null,
+      phoneVerified: map['phone_verified_at'] != null,
+      lastLoginAt: dateTime(map['last_login_at']),
+      deletionRequestedAt: dateTime(map['deletion_requested_at']),
       authMethod: method,
-      emailVerified: map['email_verified'] == true,
-      phoneVerified: map['phone_verified'] == true,
+      dateOfBirth: dateTime(p?['date_of_birth']),
+      gender: p?['gender'] as String?,
+      bloodGroup: p?['blood_group'] as String?,
+      allergies: allergies is List
+          ? [for (final a in allergies) a.toString()]
+          : const <String>[],
+      marketingOptIn: p?['marketing_opt_in'] == true,
+      avatarFileId: p?['avatar_file_id'] as String?,
+      profileVersion: (p?['version'] as num?)?.toInt(),
     );
   }
 
-  /// Maps the token fields out of an auth payload.
-  AuthSession _sessionFrom(Map<String, Object?> payload) {
-    final accessToken = payload['access_token'];
-    if (accessToken is! String || accessToken.isEmpty) {
-      throw const ServerFailure(
-        debugMessage: 'auth payload has no access_token',
-      );
+  /// The `Tokens` fields (§4).
+  static AuthSession session(Map<String, Object?> payload) {
+    final access = payload['access'];
+    if (access is! String || access.isEmpty) {
+      throw const ServerFailure(debugMessage: 'auth payload has no access');
     }
-    final expiresIn = payload['expires_in'];
-    final expiresAtRaw = payload['expires_at'];
+    final expiresIn = payload['access_expires_in'];
     return AuthSession(
-      accessToken: accessToken,
-      refreshToken: payload['refresh_token'] as String?,
-      expiresAt: switch (expiresAtRaw) {
-        final String iso => DateTime.tryParse(iso),
-        _ =>
-          expiresIn is int
-              ? DateTime.now().add(Duration(seconds: expiresIn))
-              : null,
-      },
+      accessToken: access,
+      refreshToken: payload['refresh'] as String?,
+      expiresAt: expiresIn is num
+          ? DateTime.now().add(Duration(seconds: expiresIn.toInt()))
+          : null,
+      sessionId: payload['session_id'] as String?,
     );
   }
+
+  /// The `Challenge` shape (§4).
+  static OtpChallenge challenge(Map<String, Object?> payload) {
+    final id = payload['challenge_id'];
+    if (id is! String || id.isEmpty) {
+      throw const ServerFailure(debugMessage: 'challenge has no challenge_id');
+    }
+    return OtpChallenge(
+      challengeId: id,
+      codeLength: (payload['code_length'] as num?)?.toInt() ?? 4,
+      expiresAt: dateTime(payload['expires_at']),
+      resendAfterSeconds:
+          (payload['resend_after_seconds'] as num?)?.toInt() ?? 30,
+      destinationMasked: payload['destination_masked'] as String?,
+    );
+  }
+
+  static Map<String, Object?> requireMap(Object? value, String name) {
+    if (value is Map) return value.cast<String, Object?>();
+    throw ServerFailure(debugMessage: 'auth payload has no $name object');
+  }
+
+  /// ISO-8601 (UTC, with or without fractional seconds) or `YYYY-MM-DD`.
+  static DateTime? dateTime(Object? value) =>
+      value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
 }

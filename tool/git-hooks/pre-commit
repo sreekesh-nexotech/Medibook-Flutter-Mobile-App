@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# ============================================================
+# Medibook pre-commit hook (docs-flutter/Pre-Commit Hook Setup Guide.md,
+# adapted for macOS/Linux; `flutter`/`dart` are taken from PATH).
+#
+# Install:   ln -sf ../../tool/git-hooks/pre-commit .git/hooks/pre-commit
+#            chmod +x tool/git-hooks/pre-commit
+#
+# Steps: 1) dart format staged files  2) flutter analyze  3) custom_lint
+# (skipped when the naming_conventions_lint package is not installed — see
+# docs/FLUTTER_INTEGRATION_GAPS.md)  4) no print()/debugPrint()
+# 5) folder structure  6) file names in the fixed core folders
+# 7) no `.state =` outside a StateNotifier.
+# ============================================================
+set -u
+
+RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"; BLUE="\033[0;34m"; NC="\033[0m"
+ok(){ echo -e "${GREEN}✓ $1${NC}"; }
+err(){ echo -e "${RED}✗ $1${NC}"; }
+warn(){ echo -e "${YELLOW}! $1${NC}"; }
+header(){ echo -e "\n${BLUE}── $1 ──${NC}"; }
+
+header "Medibook pre-commit checks"
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -z "$STAGED_FILES" ]; then
+  warn "No files staged for commit."
+  exit 0
+fi
+DART_FILES=$(echo "$STAGED_FILES" | grep '\.dart$' || true)
+
+# 1) Format
+header "1) dart format"
+if [ -n "$DART_FILES" ]; then
+  FORMAT_FAIL=false
+  for f in $DART_FILES; do
+    if ! dart format "$f" >/dev/null 2>&1; then
+      echo "   ⚠ Failed to format: $f"; FORMAT_FAIL=true
+    else
+      git add "$f"
+    fi
+  done
+  if [ "$FORMAT_FAIL" = true ]; then err "dart format failed"; exit 1; fi
+  ok "Formatted & re-staged Dart files"
+else
+  warn "No Dart files staged"
+fi
+
+# 2) Analyze
+header "2) flutter analyze"
+if ! flutter analyze >/tmp/medibook_analyze.log 2>&1; then
+  err "Analyzer found issues (see /tmp/medibook_analyze.log)"; exit 1
+fi
+ok "Analyzer passed"
+
+# 3) custom_lint (only when the plugin is installed)
+header "3) custom_lint"
+if grep -q "custom_lint" pubspec.yaml 2>/dev/null; then
+  if ! dart run custom_lint >/tmp/medibook_custom_lint.log 2>&1; then
+    err "custom_lint found issues (see /tmp/medibook_custom_lint.log)"; exit 1
+  fi
+  ok "custom_lint passed"
+else
+  warn "custom_lint not installed — skipped (naming_conventions_lint package absent)"
+fi
+
+# 4) Debug prints
+header "4) print()/debugPrint()"
+DEBUG_FOUND=false
+for f in $DART_FILES; do
+  # The logger is the one place allowed to print (AppLogger.fatal), and
+  # "fingerprint(" is not a print.
+  [ "$f" = "lib/core/utils/logger.dart" ] && continue
+  if grep -E "print\(|debugPrint\(" "$f" | grep -v "^[[:space:]]*//" | grep -v -i "fingerprint(" >/dev/null 2>&1; then
+    echo "   ? $f"; DEBUG_FOUND=true
+  fi
+done
+if [ "$DEBUG_FOUND" = true ]; then err "Remove print()/debugPrint() (use AppLogger)"; exit 1; fi
+ok "No debug prints"
+
+# 5) Folder structure
+header "5) Folder structure"
+ALLOWED_PATHS=(
+  "^lib/app/" "^lib/core/" "^lib/features/[a-z0-9_]+/domain/"
+  "^lib/features/[a-z0-9_]+/application/" "^lib/features/[a-z0-9_]+/infrastructure/"
+  "^lib/features/[a-z0-9_]+/presentation/" "^lib/features/common/"
+  "^lib/main.dart$" "^lib/globals.dart$"
+)
+INVALID_FILES=()
+for file in $STAGED_FILES; do
+  if [[ "$file" == lib/* ]]; then
+    VALID=false
+    for pattern in "${ALLOWED_PATHS[@]}"; do
+      if [[ "$file" =~ $pattern ]]; then VALID=true; break; fi
+    done
+    if [ "$VALID" = false ]; then INVALID_FILES+=("$file"); fi
+  fi
+done
+if [ ${#INVALID_FILES[@]} -gt 0 ]; then
+  err "Folder structure violation:"; for f in "${INVALID_FILES[@]}"; do echo "   $f"; done; exit 1
+fi
+ok "Folder structure valid"
+
+# 6) Fixed file names in the core folders (adapters/ under hive/ is allowed,
+#    per the structure CSV)
+header "6) Core file names"
+check_folder() {
+  local folder="$1"; local allowed="$2"; local file="$3"
+  if [[ "$file" == "$folder"* ]] && [[ "$file" != "$folder"*/* ]]; then
+    local name; name=$(basename "$file")
+    if ! echo "$allowed" | grep -qw "$name"; then INVALID_DART_FILES+=("$file"); fi
+  fi
+}
+INVALID_DART_FILES=()
+for f in $DART_FILES; do
+  check_folder "lib/app/bootstrap/" "app_bootstrap.dart hive_init.dart env_loader.dart" "$f"
+  check_folder "lib/app/config/" "env.dart constants.dart feature_flags.dart" "$f"
+  check_folder "lib/app/router/" "app_router.dart app_routes.dart" "$f"
+  check_folder "lib/app/theme/" "colors.dart typography.dart theme.dart" "$f"
+  check_folder "lib/app/localization/" "l10n.dart" "$f"
+  check_folder "lib/core/network/" "api_client.dart endpoints.dart network_exceptions.dart user_agent.dart" "$f"
+  check_folder "lib/core/storage/hive/" "boxes.dart keys.dart" "$f"
+  check_folder "lib/core/utils/" "date_utils.dart validators.dart logger.dart money.dart motion.dart phone.dart server_clock.dart external_url.dart file_size.dart" "$f"
+  check_folder "lib/core/error/" "failure.dart error_view.dart" "$f"
+done
+if [ ${#INVALID_DART_FILES[@]} -gt 0 ]; then
+  err "Unexpected Dart files in fixed core folders:"; for f in "${INVALID_DART_FILES[@]}"; do echo "   $f"; done; exit 1
+fi
+ok "Core file names valid"
+
+# 7) Illegal .state mutations
+header "7) .state mutations"
+VIOLATION_FOUND=false
+for f in $DART_FILES; do
+  if grep -E "\.state\s*=[^=]" "$f" >/dev/null 2>&1; then
+    if ! grep -E "extends\s+(StateNotifier|Notifier|AsyncNotifier|AutoDisposeNotifier|AutoDisposeAsyncNotifier|_\\\$)" "$f" >/dev/null 2>&1; then
+      echo "   ⚠ $f"; VIOLATION_FOUND=true
+    fi
+  fi
+done
+if [ "$VIOLATION_FOUND" = true ]; then err "Direct .state mutations outside a notifier"; exit 1; fi
+ok "No direct .state mutations"
+
+header "All checks passed"
+exit 0

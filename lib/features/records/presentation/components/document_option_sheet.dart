@@ -74,7 +74,10 @@ class _OptionRow<T> extends StatelessWidget {
     return Semantics(
       button: true,
       selected: isSelected,
-      label: option.label,
+      // The second line is what tells two rows with the same label apart
+      // (two visits with one doctor on one day), so it is read out too.
+      label: subtitle == null ? option.label : '${option.label}, $subtitle',
+      excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,

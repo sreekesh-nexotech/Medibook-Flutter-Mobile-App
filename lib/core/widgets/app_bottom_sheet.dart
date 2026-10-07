@@ -125,6 +125,10 @@ class _MedibookSheet extends StatelessWidget {
 ///
 /// Returns the value the sheet was popped with, or null when it was dismissed.
 ///
+/// A form sheet that guards unsaved changes ([AppUnsavedChangesGuard]) passes
+/// `enableDrag: false`: Flutter closes a sheet swiped down without asking its
+/// `PopScope`, while the close button, a tap on the scrim and back all ask.
+///
 /// ```dart
 /// final picked = await showAppSheet<CountryCode>(
 ///   context,
@@ -138,6 +142,7 @@ Future<T?> showAppSheet<T>(
   String? title,
   bool showCloseButton = true,
   bool isDismissible = true,
+  bool? enableDrag,
   bool scrollable = true,
 }) {
   return showModalBottomSheet<T>(
@@ -148,7 +153,7 @@ Future<T?> showAppSheet<T>(
     barrierColor: AppColors.scrim,
     isScrollControlled: true,
     isDismissible: isDismissible,
-    enableDrag: isDismissible,
+    enableDrag: enableDrag ?? isDismissible,
     shape: RoundedRectangleBorder(borderRadius: AppRadii.sheetTop),
     builder: (sheetContext) => _AppSheetFrame(
       title: title,
@@ -177,11 +182,14 @@ class _AppSheetFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = builder(context);
+    // A sheet with a text field (alternate number, a reason, a code) must
+    // ride above the keyboard, or the field being typed in is hidden.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
 
     return SafeArea(
       top: false,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(22.w, 14.h, 22.w, 24.h),
+        padding: EdgeInsets.fromLTRB(22.w, 14.h, 22.w, 24.h + keyboard),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -216,10 +224,12 @@ class _AppSheetFrame extends StatelessWidget {
                   ),
                   if (showCloseButton)
                     AppIconButton(
-                      icon: MedIcon.close,
+                      icon: PhIcon.x,
                       size: 32,
                       semanticLabel: 'Close',
-                      onPressed: () => Navigator.of(context).pop(),
+                      // maybePop, not pop, so a form's unsaved-changes guard
+                      // gets its say; it closed an edited form silently.
+                      onPressed: () => Navigator.of(context).maybePop(),
                     ),
                 ],
               ),

@@ -175,8 +175,14 @@ class AppButton extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: AppText.poppins(size: fs, weight: AppText.semibold, color: fg),
     );
-    // Only allow the label to flex when the row is bounded (fullWidth).
-    if (fullWidth) labelWidget = Flexible(child: labelWidget);
+    // Only allow the label to flex when the row is bounded (fullWidth). A
+    // label wider than its button ("Sign Out Device" in a two-button dialog)
+    // scales down to fit rather than losing its last word to an ellipsis.
+    if (fullWidth) {
+      labelWidget = Flexible(
+        child: FittedBox(fit: BoxFit.scaleDown, child: labelWidget),
+      );
+    }
 
     final row = Row(
       mainAxisSize: fullWidth ? MainAxisSize.max : MainAxisSize.min,

@@ -4,24 +4,23 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/hospital.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_rating.dart';
 import '../../../../core/widgets/app_tag.dart';
+import '../../domain/entities/hospital.dart';
+import 'file_image.dart';
+import 'slot_labels.dart';
 
-/// One facility in the hospital list (CM-10, CM-11).
-///
-/// The audit's finding was that "the hospital is only a label printed on a
-/// doctor card — it cannot be chosen, searched or filtered". This is the row
-/// that makes it choosable: photo, name, `area, city`, distance, rating,
-/// opening hours, and the departments it actually runs (which is what the
-/// filter above the list matches on).
+/// One facility in the hospital list (CM-10, CM-11): logo, name,
+/// `area, city`, distance when the query carried coordinates, the next open
+/// slot, rating, and the departments it runs (which is what the filter above
+/// the list matches on).
 ///
 /// Up to [maxDepartmentTags] department tags are shown with a `+n` overflow
 /// tag, so a five-department hospital does not push the next card off screen.
-class HospitalCard extends StatelessWidget {
-  const HospitalCard({
+class HospitalListCard extends StatelessWidget {
+  const HospitalListCard({
     super.key,
     required this.hospital,
     this.onTap,
@@ -29,24 +28,25 @@ class HospitalCard extends StatelessWidget {
     this.maxDepartmentTags = 3,
   });
 
-  final Hospital hospital;
+  final HospitalCard hospital;
   final VoidCallback? onTap;
 
-  /// The department the list is filtered by, pulled to the front of the tags
-  /// and marked active — so a filtered list shows *why* each row matched.
+  /// The department **code** the list is filtered by, pulled to the front of
+  /// the tags and marked active — so a filtered list shows *why* each row
+  /// matched.
   final String? highlightDepartment;
 
   final int maxDepartmentTags;
 
-  List<String> get _orderedDepartments {
+  List<({String code, String name})> get _orderedDepartments {
+    final all = [
+      for (final d in hospital.departments) (code: d.code, name: d.name),
+    ];
     final highlight = highlightDepartment;
-    if (highlight == null || !hospital.offers(highlight)) {
-      return hospital.departments;
-    }
+    if (highlight == null || !hospital.offers(highlight)) return all;
     return [
-      highlight,
-      for (final d in hospital.departments)
-        if (d != highlight) d,
+      ...all.where((d) => d.code == highlight),
+      ...all.where((d) => d.code != highlight),
     ];
   }
 
@@ -55,6 +55,7 @@ class HospitalCard extends StatelessWidget {
     final departments = _orderedDepartments;
     final shown = departments.take(maxDepartmentTags).toList();
     final hidden = departments.length - shown.length;
+    final distance = hospital.distanceKm;
 
     return AppCard(
       onTap: onTap,
@@ -66,7 +67,7 @@ class HospitalCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Thumb(imageAsset: hospital.imageAsset),
+              _Thumb(fileId: hospital.logoFileId ?? hospital.coverFileId),
               SizedBox(width: AppSpacing.x3.w),
               Expanded(
                 child: Column(
@@ -85,28 +86,40 @@ class HospitalCard extends StatelessWidget {
                     ),
                     SizedBox(height: 3.h),
                     _MetaRow(
-                      iconName: MedIcon.location,
-                      text:
-                          '${hospital.locationLabel} · '
-                          '${hospital.distanceLabel}',
+                      iconName: PhIcon.mapPin,
+                      text: distance == null
+                          ? hospital.locationLabel
+                          : '${hospital.locationLabel} · '
+                                '${distance.toStringAsFixed(1)} km away',
                     ),
                     SizedBox(height: 3.h),
                     _MetaRow(
-                      iconName: MedIcon.clock,
-                      text: hospital.openingHours,
+                      iconName: PhIcon.clock,
+                      text: hospital.onlineBookingEnabled
+                          ? SlotLabels.nextAvailable(hospital.nextAvailableAt)
+                          : 'Online booking not available',
                     ),
                     SizedBox(height: 5.h),
-                    // See the note in doctor_card.dart: the core rating Row
-                    // cannot flex, so it is scaled down, never clipped.
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: AlignmentDirectional.centerStart,
-                      child: AppRating(
-                        value: hospital.rating,
-                        showValue: true,
-                        size: 13,
+                    if (hospital.hasRating)
+                      // The core rating Row cannot flex, so it is scaled
+                      // down, never clipped.
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: AlignmentDirectional.centerStart,
+                        child: AppRating(
+                          value: hospital.ratingValue,
+                          showValue: true,
+                          size: 13,
+                        ),
+                      )
+                    else
+                      Text(
+                        'Not yet rated',
+                        style: AppText.poppins(
+                          size: AppFontSize.xs,
+                          color: AppColors.textMuted,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -119,7 +132,7 @@ class HospitalCard extends StatelessWidget {
               runSpacing: AppSpacing.x1.h,
               children: [
                 for (final d in shown)
-                  AppTag(label: d, active: d == highlightDepartment),
+                  AppTag(label: d.name, active: d.code == highlightDepartment),
                 if (hidden > 0) AppTag(label: '+$hidden more'),
               ],
             ),
@@ -130,42 +143,32 @@ class HospitalCard extends StatelessWidget {
   }
 }
 
-/// The facility photo. Falls back to a tinted glyph rather than a broken
-/// image box when a facility publishes no picture.
+/// The facility logo. Falls back to a tinted glyph rather than a broken
+/// image box when a facility publishes no picture or the viewer is signed
+/// out (§11.4).
 class _Thumb extends StatelessWidget {
-  const _Thumb({required this.imageAsset});
+  const _Thumb({required this.fileId});
 
-  final String? imageAsset;
+  final String? fileId;
 
   @override
   Widget build(BuildContext context) {
-    final asset = imageAsset;
-    if (asset == null) {
-      return Container(
-        width: 64.w,
-        height: 64.w,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceTint,
-          borderRadius: BorderRadius.circular(AppRadius.md.r),
-        ),
-        child: AppIcon(MedIcon.hospital, size: 26, color: AppColors.brand),
-      );
-    }
+    final fallback = Container(
+      width: 64.w,
+      height: 64.w,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTint,
+        borderRadius: BorderRadius.circular(AppRadius.md.r),
+      ),
+      child: AppIcon(PhIcon.firstAid, size: 26, color: AppColors.brand),
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.md.r),
-      child: Image.asset(
-        asset,
+      child: SizedBox(
         width: 64.w,
         height: 64.w,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stack) => Container(
-          width: 64.w,
-          height: 64.w,
-          alignment: Alignment.center,
-          color: AppColors.surfaceTint,
-          child: AppIcon(MedIcon.hospital, size: 26, color: AppColors.brand),
-        ),
+        child: AppFileImage(fileId: fileId, fallback: fallback),
       ),
     );
   }

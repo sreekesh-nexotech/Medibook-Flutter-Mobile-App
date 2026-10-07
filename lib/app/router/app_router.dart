@@ -3,19 +3,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/storage/cache/cached_fetcher.dart';
 import '../../core/widgets/navbar.dart';
+import '../../core/widgets/route_arrival.dart';
 import '../../core/widgets/states/app_loading_view.dart';
 import '../../core/widgets/states/app_not_found_view.dart';
 import '../../globals.dart';
+import 'guards/pending_link.dart';
 import '../theme/colors.dart';
 
 import '../../features/auth/application/providers/auth_provider.dart';
+import '../../features/auth/application/providers/onboarding_provider.dart';
 import '../../features/auth/application/states/auth_state.dart';
 
 import '../../features/auth/presentation/screen/change_password_screen.dart';
+import '../../features/auth/presentation/screen/consent_screen.dart';
 import '../../features/auth/presentation/screen/forgot_password_screen.dart';
 import '../../features/auth/presentation/screen/login_screen.dart';
 import '../../features/auth/presentation/screen/new_password_screen.dart';
+import '../../features/auth/presentation/screen/onboarding_screen.dart';
 import '../../features/auth/presentation/screen/signup_screen.dart';
 import '../../features/auth/presentation/screen/verify_code_screen.dart';
 import '../../features/dashboard/presentation/screen/ambulance_screen.dart';
@@ -28,7 +34,6 @@ import '../../features/booking/presentation/screen/booking_success_screen.dart';
 import '../../features/booking/presentation/screen/hospital_detail_screen.dart';
 import '../../features/booking/presentation/screen/hospitals_screen.dart';
 import '../../features/booking/presentation/screen/locations_screen.dart';
-import '../../features/booking/presentation/screen/queue_screen.dart';
 import '../../features/payment/presentation/screen/payment_result_screen.dart';
 import '../../features/payment/presentation/screen/payment_screen.dart';
 import '../../features/appointments/presentation/screen/appointment_detail_screen.dart';
@@ -36,7 +41,7 @@ import '../../features/appointments/presentation/screen/appointment_filter_sheet
 import '../../features/appointments/presentation/screen/appointment_receipt_screen.dart';
 import '../../features/appointments/presentation/screen/appointment_search_screen.dart';
 import '../../features/appointments/presentation/screen/appointments_screen.dart';
-import '../../features/appointments/presentation/screen/reschedule_screen.dart';
+import '../../features/appointments/presentation/screen/live_queue_screen.dart';
 import '../../features/records/presentation/screen/document_detail_screen.dart';
 import '../../features/records/presentation/screen/document_upload_screen.dart';
 import '../../features/records/presentation/screen/records_screen.dart';
@@ -44,14 +49,19 @@ import '../../features/insurance/presentation/screen/insurance_add_screen.dart';
 import '../../features/insurance/presentation/screen/insurance_detail_screen.dart';
 import '../../features/insurance/presentation/screen/insurance_screen.dart';
 import '../../features/profile/presentation/screen/addresses_screen.dart';
+import '../../features/profile/presentation/screen/data_export_screen.dart';
 import '../../features/profile/presentation/screen/dependant_edit_screen.dart';
 import '../../features/profile/presentation/screen/dependants_screen.dart';
 import '../../features/profile/presentation/screen/emergency_contacts_screen.dart';
+import '../../features/profile/presentation/screen/phone_change_screen.dart';
 import '../../features/profile/presentation/screen/profile_edit_screen.dart';
 import '../../features/profile/presentation/screen/profile_screen.dart';
+import '../../features/profile/presentation/screen/sessions_screen.dart';
 import '../../features/support/presentation/screen/faq_screen.dart';
 import '../../features/support/presentation/screen/legal_document_screen.dart';
 import '../../features/support/presentation/screen/support_screen.dart';
+import '../../features/support/presentation/screen/support_ticket_detail_screen.dart';
+import '../../features/support/presentation/screen/support_tickets_screen.dart';
 
 import 'app_routes.dart';
 
@@ -70,6 +80,26 @@ import 'app_routes.dart';
 /// * **The not-found screen** (audit §3.2.4 — the app "drops the viewer onto a
 ///   raw framework crash page").
 GoRouter buildAppRouter(WidgetRef ref) {
+  final router = _buildRouter(ref);
+  _reportArrivals(ref, router);
+  return router;
+}
+
+/// Tells the cache each time the screen on top changes, so the screen being
+/// arrived at re-reads its data from the server instead of from memory (see
+/// `CachedFetcher.markArrival`). Screens that stay built underneath another
+/// re-read themselves through `RouteArrival`.
+void _reportArrivals(WidgetRef ref, GoRouter router) {
+  String? last;
+  router.routerDelegate.addListener(() {
+    final location = topLocationOf(router.routerDelegate.currentConfiguration);
+    if (location == last) return;
+    last = location;
+    ref.read(cachedFetcherProvider).markArrival();
+  });
+}
+
+GoRouter _buildRouter(WidgetRef ref) {
   return GoRouter(
     navigatorKey: Globals.rootNavigatorKey,
     initialLocation: AppRoutes.splash,
@@ -87,6 +117,16 @@ GoRouter buildAppRouter(WidgetRef ref) {
       // Resolved by the guard as soon as the stored session is read; never
       // navigated to by hand.
       GoRoute(path: AppRoutes.splash, builder: (_, _) => const _SplashScreen()),
+
+      // ---- Onboarding (first run) ----
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (_, _) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.onboardingConsent,
+        builder: (_, _) => const ConsentScreen(),
+      ),
 
       // ---- Auth ----
       GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginScreen()),
@@ -189,6 +229,8 @@ GoRouter buildAppRouter(WidgetRef ref) {
           // Without this, hospital-scoped discovery silently degrades to
           // unscoped once the funnel is entered.
           hospital: state.uri.queryParameters['hospital'],
+          slot: state.uri.queryParameters['slot'],
+          resume: state.uri.queryParameters['resume'] == '1',
         ),
       ),
       GoRoute(
@@ -206,9 +248,13 @@ GoRouter buildAppRouter(WidgetRef ref) {
       ),
 
       // ---- Payment (CM-17 / CM-20 / CM-23) ----
+      // `?appt=&order=` when reached from an appointment's "Retry payment".
       GoRoute(
         path: AppRoutes.bookingPayment,
-        builder: (_, _) => const PaymentScreen(),
+        builder: (context, state) => PaymentScreen(
+          appointmentId: state.uri.queryParameters['appt'],
+          orderId: state.uri.queryParameters['order'],
+        ),
       ),
       GoRoute(
         path: AppRoutes.bookingPaymentResult,
@@ -225,11 +271,6 @@ GoRouter buildAppRouter(WidgetRef ref) {
         path: '${AppRoutes.appointmentDetail}/:id',
         builder: (context, state) =>
             AppointmentDetailScreen(id: state.pathParameters['id']!),
-      ),
-      GoRoute(
-        path: '${AppRoutes.reschedule}/:id',
-        builder: (context, state) =>
-            RescheduleScreen(id: state.pathParameters['id']!),
       ),
       GoRoute(
         path: AppRoutes.appointmentsSearch,
@@ -249,10 +290,12 @@ GoRouter buildAppRouter(WidgetRef ref) {
       ),
 
       // ---- Queue + emergency (CM-09 / CM-24, CM-44..46) ----
+      // The queue is per appointment (§10.5): `/queue/:appointmentId`.
       GoRoute(
-        path: '${AppRoutes.queue}/:doctorId',
-        builder: (context, state) =>
-            QueueScreen(doctorId: state.pathParameters['doctorId']!),
+        path: '${AppRoutes.queue}/:appointmentId',
+        builder: (context, state) => LiveQueueScreen(
+          appointmentId: state.pathParameters['appointmentId']!,
+        ),
       ),
       GoRoute(
         path: AppRoutes.ambulance,
@@ -263,6 +306,20 @@ GoRouter buildAppRouter(WidgetRef ref) {
       GoRoute(
         path: AppRoutes.profileEdit,
         builder: (_, _) => const ProfileEditScreen(),
+      ),
+      // Three-step mobile-number change (§5.3) and signed-in devices (§4.9).
+      GoRoute(
+        path: AppRoutes.profilePhone,
+        builder: (_, _) => const PhoneChangeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profileSessions,
+        builder: (_, _) => const SessionsScreen(),
+      ),
+      // Personal-data export requests (§5.7).
+      GoRoute(
+        path: AppRoutes.profileDataExport,
+        builder: (_, _) => const DataExportScreen(),
       ),
       GoRoute(
         path: AppRoutes.profileEmergency,
@@ -303,6 +360,11 @@ GoRouter buildAppRouter(WidgetRef ref) {
         builder: (context, state) =>
             InsuranceDetailScreen(id: state.pathParameters['id']),
       ),
+      GoRoute(
+        path: '${AppRoutes.insurance}/:id/edit',
+        builder: (context, state) =>
+            InsuranceAddScreen(policyId: state.pathParameters['id']),
+      ),
 
       // ---- Legal, FAQ and support (CM-02 / CM-52) ----
       // Public: the sign-up consent checkbox links straight to the legal
@@ -319,6 +381,16 @@ GoRouter buildAppRouter(WidgetRef ref) {
       ),
       // Help and Support are the same destination; both constants resolve.
       GoRoute(path: AppRoutes.help, builder: (_, _) => const SupportScreen()),
+      // Support tickets (§13) — token required, so NOT in the public list.
+      GoRoute(
+        path: AppRoutes.supportTickets,
+        builder: (_, _) => const SupportTicketsScreen(),
+      ),
+      GoRoute(
+        path: '${AppRoutes.supportTickets}/:id',
+        builder: (context, state) =>
+            SupportTicketDetailScreen(id: state.pathParameters['id']),
+      ),
 
       // ---- Documents library (CM-32..CM-36) ----
       // `/documents/upload` is registered BEFORE `/documents/:id`, or the
@@ -351,6 +423,7 @@ GoRouter buildAppRouter(WidgetRef ref) {
 /// later is protected unless someone deliberately opens it up.
 const List<String> _publicPrefixes = [
   AppRoutes.splash,
+  AppRoutes.onboarding,
   AppRoutes.login,
   AppRoutes.signup,
   AppRoutes.forgot,
@@ -369,6 +442,8 @@ const List<String> _publicPrefixes = [
 /// `/verify` is deliberately absent: it also serves re-verifying a changed
 /// phone number from Profile, which happens while signed in.
 const List<String> _signedOutOnly = [
+  AppRoutes.onboarding,
+  AppRoutes.onboardingConsent,
   AppRoutes.login,
   AppRoutes.signup,
   AppRoutes.forgot,
@@ -376,9 +451,33 @@ const List<String> _signedOutOnly = [
   AppRoutes.lockout,
 ];
 
-bool _isPublic(String location) => _publicPrefixes.any(
+/// Sign-in screens that are not reachable until the first-run intro and its
+/// consent screen have been completed on this device. The other public
+/// screens (legal documents, help) stay open: the consent screen links to them.
+const List<String> _introFirst = [
+  AppRoutes.login,
+  AppRoutes.signup,
+  AppRoutes.forgot,
+  AppRoutes.verify,
+  AppRoutes.reset,
+  AppRoutes.lockout,
+];
+
+bool _isIntroFirst(String location) => _introFirst.any(
   (prefix) => location == prefix || location.startsWith('$prefix/'),
 );
+
+bool _isPublic(String location) {
+  // `/support/tickets…` sits under the public `/support` prefix but needs a
+  // token (§13), so it is carved out before the prefix match.
+  if (location == AppRoutes.supportTickets ||
+      location.startsWith('${AppRoutes.supportTickets}/')) {
+    return false;
+  }
+  return _publicPrefixes.any(
+    (prefix) => location == prefix || location.startsWith('$prefix/'),
+  );
+}
 
 /// The guard.
 ///
@@ -395,8 +494,23 @@ String? _redirect(WidgetRef ref, GoRouterState state) {
       uri.scheme == AppRoutes.deepLinkScheme ||
       uri.host == AppRoutes.deepLinkHost;
   if (isExternalLink) {
+    // A link never skips the first-run intro (owner decision, BL-AUTH-005):
+    // a signed-out device that has not completed it gets the intro, whatever
+    // the link addressed.
+    if (ref.read(authProvider) is AuthUnauthenticated &&
+        !ref.read(isOnboardingCompleteProvider)) {
+      return AppRoutes.onboarding;
+    }
     // A null mapping means "explain yourself", not "ignore".
-    return AppRoutes.fromDeepLink(uri) ?? AppRoutes.notFound;
+    final target = AppRoutes.fromDeepLink(uri);
+    // Not signed in yet (start-up, or signed out): open it once the session
+    // is ready instead of dropping it on Home (CL NAV-003, NAV-005).
+    if (target != null &&
+        ref.read(authProvider) is! AuthAuthenticated &&
+        !_isPublic(target)) {
+      ref.read(pendingLinkProvider).remember(target);
+    }
+    return target ?? AppRoutes.notFound;
   }
 
   final location = state.matchedLocation;
@@ -407,20 +521,36 @@ String? _redirect(WidgetRef ref, GoRouterState state) {
     AuthUnknown() => location == AppRoutes.splash ? null : AppRoutes.splash,
 
     // Audit §3.7.4: the home screen could be reached without ever passing
-    // login. Anything not explicitly public now needs a session.
+    // login. Anything not explicitly public now needs a session. A device
+    // that has never seen the intro gets it before the sign-in screens,
+    // however it arrived at them.
     AuthUnauthenticated() =>
       location == AppRoutes.splash
-          ? AppRoutes.login
-          : _isPublic(location)
-          ? null
-          : AppRoutes.login,
+          ? _signedOutLanding(ref)
+          : !_isPublic(location)
+          ? _signedOutLanding(ref)
+          : _isIntroFirst(location) && !ref.read(isOnboardingCompleteProvider)
+          ? AppRoutes.onboarding
+          : null,
 
+    // A link opened before the session was ready goes first: taken at
+    // start-up; peeked on the sign-in screens, which take it themselves.
     AuthAuthenticated() =>
-      location == AppRoutes.splash || _signedOutOnly.contains(location)
-          ? AppRoutes.home
+      location == AppRoutes.splash
+          ? ref.read(pendingLinkProvider).take() ?? AppRoutes.home
+          : _signedOutOnly.contains(location)
+          ? ref.read(pendingLinkProvider).peek() ?? AppRoutes.home
           : null,
   };
 }
+
+/// Where a signed-out visitor lands: the intro on a fresh device, sign-in
+/// afterwards. The onboarding record is read synchronously from storage, so
+/// there is no second splash while it resolves.
+String _signedOutLanding(WidgetRef ref) =>
+    ref.read(isOnboardingCompleteProvider)
+    ? AppRoutes.login
+    : AppRoutes.onboarding;
 
 /// Re-runs the guard when the session changes.
 ///

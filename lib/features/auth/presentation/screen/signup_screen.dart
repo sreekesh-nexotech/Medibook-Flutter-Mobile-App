@@ -9,17 +9,20 @@ import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/error/error_view.dart';
 import '../../../../core/utils/validators.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_date_picker_sheet.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_phone_field.dart';
+import '../../../../core/widgets/app_text_field.dart';
 import '../components/auth_fields.dart';
 import '../components/field_focus_group.dart';
 import '../components/legal_consent_checkbox.dart';
 import '../components/screen_fade_rise.dart';
-import '../controllers/auth_flow_draft.dart';
-import '../controllers/auth_form_controller.dart';
-import '../controllers/signup_form_controller.dart';
-import '../controllers/verify_request.dart';
+import '../../application/providers/auth_flow_draft.dart';
+import '../../application/providers/auth_form_controller.dart';
+import '../../application/providers/signup_form_controller.dart';
+import '../../application/providers/verify_request.dart';
 
 /// Create Account (`/signup`).
 ///
@@ -79,6 +82,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   CountryCode _country = CountryCodes.india;
   bool _acceptedTerms = false;
+  DateTime? _dateOfBirth;
+
+  /// Display-only mirror of [_dateOfBirth] for the read-only field.
+  final TextEditingController _dateOfBirthText = TextEditingController();
 
   late final Map<String, TextEditingController> _controllers = {
     SignupFields.firstName: _firstName,
@@ -116,6 +123,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     _email.text = draft.email;
     _phone.text = draft.phoneNational;
     _country = draft.countryCode;
+    _dateOfBirth = draft.dateOfBirth;
+    _dateOfBirthText.text = draft.dateOfBirth == null
+        ? ''
+        : AppDates.dayMonthYear(draft.dateOfBirth!);
     _addressLabel.text = draft.addressLabel;
     _addressLine1.text = draft.addressLine1;
     _addressLine2.text = draft.addressLine2;
@@ -129,6 +140,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     for (final controller in _controllers.values) {
       controller.dispose();
     }
+    _dateOfBirthText.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -141,14 +153,34 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     _form.onChanged(field, value);
   }
 
-  void _onCountryChanged(CountryCode country) {
-    setState(() => _country = country);
-    _form.onChanged(SignupFields.phone, Validators.digitsOf(_phone.text));
-  }
-
   void _onTermsChanged(bool accepted) {
     setState(() => _acceptedTerms = accepted);
     _form.onTermsChanged(accepted);
+  }
+
+  /// Account holders must be 18+ (`409 UNDER_AGE`); the picker opens on the
+  /// latest eligible day so the common case is a short scroll.
+  Future<void> _pickDateOfBirth() async {
+    _focus.unfocus();
+    final now = DateTime.now();
+    final latest = DateTime(
+      now.year - SignupFormController.minimumAge,
+      now.month,
+      now.day,
+    );
+    final picked = await showAppDatePickerSheet(
+      context,
+      initialDay: _dateOfBirth ?? latest,
+      firstDay: DateTime(now.year - 120),
+      lastDay: latest,
+      title: 'Date of birth',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _dateOfBirth = picked;
+      _dateOfBirthText.text = AppDates.dayMonthYear(picked);
+    });
+    _form.onDateOfBirthChanged(picked);
   }
 
   Future<void> _submit() async {
@@ -159,6 +191,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       lastName: _lastName.text,
       email: _email.text,
       phone: digits,
+      dateOfBirth: _dateOfBirth,
       password: _password.text,
       confirmPassword: _confirm.text,
       addressLabel: _addressLabel.text,
@@ -177,6 +210,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       email: _email.text.trim(),
       countryCode: _country,
       phoneNational: digits,
+      dateOfBirth: _dateOfBirth,
       addressLabel: _addressLabel.text.trim(),
       addressLine1: _addressLine1.text.trim(),
       addressLine2: _addressLine2.text.trim(),
@@ -185,13 +219,22 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       pincode: _pincode.text.trim(),
     );
 
-    final sent = await _form.startMobileVerification(draft);
-    if (!sent || !mounted) return;
+    // The password goes to the backend once, here, and is never carried
+    // across a route.
+    final challenge = await _form.startMobileVerification(
+      draft,
+      password: _password.text.isEmpty ? null : _password.text,
+    );
+    if (challenge == null || !mounted) return;
     context.go(
       VerifyRequest(
         purpose: VerifyPurpose.signup,
         channel: ResetChannel.sms,
-        destination: draft.phoneE164,
+        destination: draft.phoneDisplay,
+        challengeId: challenge.challengeId,
+        codeLength: challenge.codeLength,
+        resendAfterSeconds: challenge.resendAfterSeconds,
+        expiresAt: challenge.expiresAt,
       ).path,
     );
   }
@@ -238,7 +281,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         ],
                         ..._identityFields(form, busy: busy),
                         SizedBox(height: 24.h),
-                        const _SectionLabel('Address'),
+                        const _SectionLabel('Address (optional)'),
                         SizedBox(height: 12.h),
                         ..._addressFields(form, busy: busy),
                         SizedBox(height: 18.h),
@@ -247,8 +290,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           onChanged: _onTermsChanged,
                           enabled: !busy,
                           errorText: form.errorOf(SignupFields.terms),
-                          onOpenDocument: (slug) =>
-                              context.push(AppRoutes.legalPath(slug)),
+                          onOpenDocument: (slug) => context.push(
+                            AppRoutes.legalPath(
+                              slug,
+                              from: AppRoutes.legalFromSignup,
+                            ),
+                          ),
                         ),
                         SizedBox(height: 20.h),
                         AppButton(
@@ -259,7 +306,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         ),
                         SizedBox(height: 10.h),
                         Text(
-                          "We'll text a 4-digit code to your mobile number to "
+                          "We'll text a code to your mobile number to "
                           'confirm it before the account is created.',
                           textAlign: TextAlign.center,
                           style: AppText.poppins(
@@ -364,7 +411,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         field: SignupFields.phone,
         controller: _phone,
         countryCode: _country,
-        onCountryChanged: _onCountryChanged,
         state: form,
         focus: _focus,
         onChanged: _onFieldChanged,
@@ -373,16 +419,39 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         onEditingComplete: () => _focus.requestFocus(SignupFields.password),
       ),
       SizedBox(height: 16.h),
+      Semantics(
+        button: true,
+        label:
+            'Date of birth, ${_dateOfBirth == null ? 'not set' : AppDates.dayMonthYear(_dateOfBirth!)}',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: busy ? null : _pickDateOfBirth,
+          child: AbsorbPointer(
+            child: AppTextField(
+              label: 'Date of Birth',
+              controller: _dateOfBirthText,
+              hintText: 'Select your date of birth',
+              errorText: form.errorOf(SignupFields.dateOfBirth),
+              helperText: form.errorOf(SignupFields.dateOfBirth) == null
+                  ? 'You must be 18 or older to open an account.'
+                  : null,
+              enabled: !busy,
+            ),
+          ),
+        ),
+      ),
+      SizedBox(height: 16.h),
       AuthPasswordField(
         field: SignupFields.password,
-        label: 'Password',
+        label: 'Password (optional)',
         controller: _password,
         state: form,
         focus: _focus,
         onChanged: _onFieldChanged,
-        hintText: 'At least 6 characters',
+        hintText: 'At least 10 characters',
         helperText: form.errorOf(SignupFields.password) == null
-            ? 'At least 6 characters'
+            ? 'Optional — you can always sign in with a code. If set, at '
+                  'least 10 characters.'
             : null,
         isNewPassword: true,
         enabled: !busy,

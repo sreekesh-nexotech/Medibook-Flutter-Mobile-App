@@ -9,37 +9,43 @@ import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/seed_providers.dart';
+import '../../../../core/utils/external_url.dart';
+import '../../../../core/error/failure.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/route_arrival.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_select.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/widgets/app_unsaved_changes_guard.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../auth/application/providers/auth_provider.dart';
+import '../../application/providers/app_config_provider.dart';
+import '../../application/providers/faq_controller.dart';
+import '../../application/providers/support_provider.dart';
+import '../../application/states/ticket_form_state.dart';
+import '../../domain/entities/support_ticket.dart';
 import '../components/support_tiles.dart';
-import '../controllers/support_request_controller.dart';
+import '../components/ticket_attachments_field.dart';
+import '../../application/providers/ticket_attachments_controller.dart';
 
 /// Help & Support (`/support`, and `/help` — the same screen) — CM-52.
 ///
-/// The audit found *"no help, FAQ, support or legal screen reachable from
-/// anywhere in the app"*. This is the hub: the contact channels, a request
-/// form, and links to the FAQ and the three policy documents (whose slugs come
-/// from `legalDocumentsProvider`, so they cannot drift from
-/// [AppRoutes.legalSlugs] and the sign-up policy links).
+/// The hub: self-serve links, the contact channel the backend publishes
+/// (`app-config.support_contacts`, §3.1), the emergency line, a real
+/// "raise a request" form (`POST /patient/support/tickets`, §13) and the
+/// user's open requests, plus the three policy documents.
 ///
 /// ## Honest controls
 ///
 /// * **Copy** genuinely copies to the clipboard, so the toast it shows is
-///   true.
-/// * **Send request** is marked `stubbed` and, once the form validates, says
-///   so — there is no support backend in this build, and a "We have received
-///   your request" toast for a request nobody received is exactly the lie THE
-///   LAW forbids. The form still validates, so the flow is reviewable.
-/// * There is **no "Call support" button**: no telephony plugin exists. The
-///   emergency row points at the ambulance screen and names 108 instead of
-///   pretending to dial.
+///   true. There is still no dialler in this build, so the support phone
+///   number is shown and copyable rather than behind a "Call" button.
+/// * **Send request** creates a ticket on the server and opens it. A server
+///   `VALIDATION_ERROR` lands on the matching field; anything else is shown
+///   as a toast with the form left intact.
+/// * The emergency row points at the ambulance directory and names 108.
 class SupportScreen extends ConsumerStatefulWidget {
   const SupportScreen({super.key});
 
@@ -48,31 +54,24 @@ class SupportScreen extends ConsumerStatefulWidget {
 }
 
 class _SupportScreenState extends ConsumerState<SupportScreen> {
-  /// The addresses the seeded policy documents themselves publish.
-  static const String _supportEmail = 'support@medibook.app';
-  static const String _privacyEmail = 'privacy@medibook.app';
-
   /// The national emergency number — real, and deliberately not a button.
   static const String _emergencyNumber = '108';
 
   late final TextEditingController _subject;
-  late final TextEditingController _details;
-  late final TextEditingController _email;
+  late final TextEditingController _description;
 
   @override
   void initState() {
     super.initState();
-    final state = ref.read(supportRequestControllerProvider);
-    _subject = TextEditingController(text: state.subject);
-    _details = TextEditingController(text: state.details);
-    _email = TextEditingController(text: state.email);
+    final form = ref.read(ticketFormControllerProvider);
+    _subject = TextEditingController(text: form.subject);
+    _description = TextEditingController(text: form.description);
   }
 
   @override
   void dispose() {
     _subject.dispose();
-    _details.dispose();
-    _email.dispose();
+    _description.dispose();
     super.dispose();
   }
 
@@ -82,265 +81,309 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     ref.read(toastControllerProvider.notifier).show('$what copied');
   }
 
-  void _submit() {
-    final valid = ref
-        .read(supportRequestControllerProvider.notifier)
-        .validate();
-    if (!valid) return;
-    // Validated, and now the truth: nothing can be sent from this build.
-    showStubbedToast(context, ref, 'Sending a support request');
+  /// Hands a `tel:` / `mailto:` link to the OS; says so when nothing can
+  /// take it (no dialler on a tablet, no mail app).
+  Future<void> _open(String url) async {
+    if (await openExternalUrl(url)) return;
+    if (!mounted) return;
+    ref
+        .read(toastControllerProvider.notifier)
+        .show('No app on this phone can open that. Use Copy instead.');
+  }
+
+  Future<void> _submit() async {
+    final files = ref.read(ticketAttachmentsProvider(newTicketForm));
+    final toast = ref.read(toastControllerProvider.notifier);
+    // The button already waits while a file uploads; this covers a tap that
+    // lands first, and a file that failed and was never removed.
+    if (files.isBusy) {
+      toast.show('Wait for the file to finish uploading');
+      return;
+    }
+    if (files.hasProblem) {
+      toast.show('A file could not be attached — remove it or try again');
+      return;
+    }
+    final failure = await ref
+        .read(ticketFormControllerProvider.notifier)
+        .submit(attachmentFileIds: files.readyFileIds);
+    if (!mounted) return;
+    if (failure == null) {
+      final created = ref.read(ticketFormControllerProvider).created;
+      if (created == null) return;
+      handOverTicketAttachments(ref, newTicketForm);
+      toast.show('Request ${created.ticketNo} raised');
+      // A fresh form, not just empty boxes: the old subject and description
+      // stayed in the form and a second Send raised a duplicate
+      // (BL-SUP-005).
+      ref.invalidate(ticketFormControllerProvider);
+      _subject.clear();
+      _description.clear();
+      context.push(AppRoutes.supportTicketPath(created.id));
+      return;
+    }
+    toast.show(
+      failure is ValidationFailure
+          ? 'Fix the highlighted fields first'
+          : failure.userMessage,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final documents = ref.watch(legalDocumentsProvider);
-    final request = ref.watch(supportRequestControllerProvider);
-    final controller = ref.read(supportRequestControllerProvider.notifier);
+    final isSignedIn = ref.watch(isAuthenticatedProvider);
+    final contacts = ref.watch(supportContactsProvider);
+    final faqTopics = ref.watch(faqTopicsProvider);
+    final form = ref.watch(ticketFormControllerProvider);
+    final controller = ref.read(ticketFormControllerProvider.notifier);
+    final tickets = ref.watch(supportTicketsProvider.select((s) => s.value));
+    final openCount = tickets?.where((t) => t.status.isOpen).length;
 
-    return Scaffold(
-      backgroundColor: AppColors.bgApp,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AppInnerHeader(
-              title: 'Help & Support',
-              onBack: () => _leave(context),
-            ),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(
-                  AppSpacing.x5.w,
-                  AppSpacing.x1.h,
-                  AppSpacing.x5.w,
-                  AppSpacing.x8.h,
+    return RouteArrival(
+      onArrive: () {
+        // The ticket list only; what is typed in the form is left alone.
+        ref.invalidate(supportTicketsProvider);
+      },
+      child: AppUnsavedChangesGuard(
+        hasUnsavedChanges:
+            form.isDirty && !form.isSending && form.created == null,
+        title: 'Discard your request?',
+        consequence: 'What you have typed will not be sent.',
+        child: Scaffold(
+          backgroundColor: AppColors.bgApp,
+          body: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AppInnerHeader(
+                  title: 'Help & Support',
+                  onBack: () => _leave(context),
                 ),
-                children: [
-                  // ---- Self-serve first: most questions are already answered.
-                  AppCard(
+                Expanded(
+                  child: ListView(
                     padding: EdgeInsets.fromLTRB(
-                      AppSpacing.x4.w,
-                      AppSpacing.x4.h,
-                      AppSpacing.x4.w,
-                      AppSpacing.x2.h,
+                      AppSpacing.x5.w,
+                      AppSpacing.x1.h,
+                      AppSpacing.x5.w,
+                      AppSpacing.x8.h,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SupportCardTitle(
-                          title: 'Find an answer',
-                          subtitle:
-                              'Booking, payments, records and account '
-                              'questions, answered.',
+                    children: [
+                      // ---- Self-serve first: most questions are answered.
+                      AppCard(
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.x4.w,
+                          AppSpacing.x4.h,
+                          AppSpacing.x4.w,
+                          AppSpacing.x2.h,
                         ),
-                        SupportLinkTile(
-                          iconName: MedIcon.search,
-                          label: 'Browse FAQs',
-                          subtitle: 'The ten questions we are asked most',
-                          semanticLabel: 'Browse frequently asked questions',
-                          onTap: () => context.push(AppRoutes.faq),
-                        ),
-                        SupportLinkTile(
-                          iconName: MedIcon.calendar,
-                          label: 'My appointments',
-                          subtitle: 'Reschedule, cancel or find a receipt',
-                          onTap: () => context.go(AppRoutes.appointments),
-                        ),
-                        SupportLinkTile(
-                          iconName: MedIcon.records,
-                          label: 'My health records',
-                          subtitle: 'Reports, prescriptions and uploads',
-                          onTap: () => context.go(AppRoutes.records),
-                          showDivider: false,
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.x4.h),
-
-                  // ---- Contact channels.
-                  AppCard(
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.x4.w,
-                      AppSpacing.x4.h,
-                      AppSpacing.x4.w,
-                      AppSpacing.x4.h,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SupportCardTitle(
-                          title: 'Talk to us',
-                          subtitle:
-                              'Email is the fastest way to reach the support '
-                              'team.',
-                        ),
-                        SupportContactTile(
-                          iconName: MedIcon.records,
-                          title: 'Support team',
-                          value: _supportEmail,
-                          description:
-                              'Bookings, payments, refunds and records. '
-                              'Answered within one working day.',
-                          actionLabel: 'Copy address',
-                          actionSemanticLabel: 'Copy the support email address',
-                          onAction: () =>
-                              _copy(_supportEmail, 'Support email address'),
-                        ),
-                        SupportContactTile(
-                          iconName: MedIcon.eye,
-                          title: 'Data and privacy',
-                          value: _privacyEmail,
-                          description:
-                              'See, correct, export or delete your data. '
-                              'Answered within 30 days.',
-                          actionLabel: 'Copy address',
-                          actionSemanticLabel: 'Copy the privacy email address',
-                          onAction: () =>
-                              _copy(_privacyEmail, 'Privacy email address'),
-                        ),
-                        SupportFactRow(
-                          label: 'Support hours',
-                          value: 'Mon–Sat, 9 AM – 7 PM IST',
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.x4.h),
-
-                  // ---- Emergency: never a fake call button.
-                  _EmergencyCard(
-                    number: _emergencyNumber,
-                    onOpenAmbulance: () => context.push(AppRoutes.ambulance),
-                    onCopy: () => _copy(
-                      _emergencyNumber,
-                      'Emergency number $_emergencyNumber',
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.x4.h),
-
-                  // ---- Raise a request.
-                  AppCard(
-                    padding: EdgeInsets.all(AppSpacing.x4.w),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SupportCardTitle(
-                          title: 'Raise a request',
-                          subtitle:
-                              'Tell us what happened and we will reply by '
-                              'email.',
-                        ),
-                        SizedBox(height: AppSpacing.x3.h),
-                        AppSelect<String>(
-                          label: 'What is this about?',
-                          value: request.category,
-                          options: [
-                            for (final category in SupportRequestCategories.all)
-                              AppSelectOption<String>(category, category),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) controller.setCategory(value);
-                          },
-                        ),
-                        SizedBox(height: AppSpacing.x4.h),
-                        AppTextField(
-                          label: 'Subject',
-                          controller: _subject,
-                          hintText: 'Refund not received',
-                          maxLength: 80,
-                          textCapitalization: TextCapitalization.sentences,
-                          textInputAction: TextInputAction.next,
-                          errorText: request.errorFor(
-                            SupportRequestField.subject,
-                          ),
-                          onChanged: controller.setSubject,
-                        ),
-                        SizedBox(height: AppSpacing.x4.h),
-                        AppTextField(
-                          label: 'What happened?',
-                          controller: _details,
-                          hintText:
-                              'Include the booking reference if you have one',
-                          maxLines: 4,
-                          maxLength: 600,
-                          textCapitalization: TextCapitalization.sentences,
-                          errorText: request.errorFor(
-                            SupportRequestField.details,
-                          ),
-                          helperText: 'At least 20 characters',
-                          onChanged: controller.setDetails,
-                        ),
-                        SizedBox(height: AppSpacing.x4.h),
-                        AppTextField(
-                          label: 'Reply to',
-                          controller: _email,
-                          hintText: 'you@example.com',
-                          keyboardType: TextInputType.emailAddress,
-                          autofillHints: const [AutofillHints.email],
-                          textInputAction: TextInputAction.done,
-                          errorText: request.errorFor(
-                            SupportRequestField.email,
-                          ),
-                          onChanged: controller.setEmail,
-                          onSubmitted: (_) => _submit(),
-                        ),
-                        SizedBox(height: AppSpacing.x5.h),
-                        AppButton(
-                          label: 'Send Request',
-                          fullWidth: true,
-                          // No support backend exists in this build, so the
-                          // control says so rather than faking a ticket.
-                          stubbed: true,
-                          onPressed: _submit,
-                        ),
-                        SizedBox(height: AppSpacing.x3.h),
-                        AppStubBanner(
-                          title: 'Not connected yet',
-                          body:
-                              'Sending is not wired up in this build. Until it '
-                              'is, email $_supportEmail — the form checks your '
-                              'request is complete either way.',
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.x4.h),
-
-                  // ---- Policies (CM-02: the same slugs sign-up links to).
-                  AppCard(
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.x4.w,
-                      AppSpacing.x4.h,
-                      AppSpacing.x4.w,
-                      AppSpacing.x2.h,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SupportCardTitle(title: 'Policies'),
-                        for (var i = 0; i < documents.length; i++)
-                          SupportLinkTile(
-                            iconName: MedIcon.records,
-                            label: documents[i].title,
-                            subtitle: 'Version ${documents[i].version}',
-                            semanticLabel: 'Read the ${documents[i].title}',
-                            showDivider: i < documents.length - 1,
-                            onTap: () => context.push(
-                              AppRoutes.legalPath(documents[i].slug),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // The FAQ's live categories, not a fixed list of
+                            // topics the server may not have.
+                            SupportCardTitle(
+                              title: 'Find an answer',
+                              subtitle: faqTopics == null
+                                  ? 'Common questions, answered.'
+                                  : '$faqTopics questions, answered.',
                             ),
+                            SupportLinkTile(
+                              iconName: PhIcon.magnifyingGlass,
+                              label: 'Browse FAQs',
+                              subtitle: 'The questions we are asked most',
+                              semanticLabel:
+                                  'Browse frequently asked questions',
+                              onTap: () => context.push(AppRoutes.faq),
+                            ),
+                            if (isSignedIn) ...[
+                              SupportLinkTile(
+                                iconName: PhIcon.folder,
+                                label: 'My requests',
+                                subtitle: openCount == null
+                                    ? 'Track the requests you have raised'
+                                    : openCount == 0
+                                    ? 'No open requests'
+                                    : openCount == 1
+                                    ? '1 open request'
+                                    : '$openCount open requests',
+                                onTap: () =>
+                                    context.push(AppRoutes.supportTickets),
+                              ),
+                              SupportLinkTile(
+                                iconName: PhIcon.calendarBlank,
+                                label: 'My appointments',
+                                subtitle: 'Cancel, rebook or find a receipt',
+                                onTap: () => context.go(AppRoutes.appointments),
+                                showDivider: false,
+                              ),
+                            ] else
+                              SupportLinkTile(
+                                iconName: PhIcon.eye,
+                                label: 'Sign in',
+                                subtitle: 'Raise and track support requests',
+                                onTap: () => context.go(AppRoutes.login),
+                                showDivider: false,
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: AppSpacing.x4.h),
+
+                      // ---- Contact channels — from app-config.
+                      AppCard(
+                        padding: EdgeInsets.all(AppSpacing.x4.w),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SupportCardTitle(
+                              title: 'Talk to us',
+                              subtitle:
+                                  'Raise a request below and we reply on the '
+                                  'ticket. For anything urgent, ring us.',
+                            ),
+                            if (contacts.phoneE164 != null)
+                              SupportContactTile(
+                                iconName: PhIcon.bell,
+                                title: 'Support line',
+                                value: contacts.phoneE164!,
+                                description:
+                                    'Bookings, payments, refunds and records.',
+                                actionLabel: 'Copy number',
+                                actionSemanticLabel:
+                                    'Copy the support phone number',
+                                onAction: () => _copy(
+                                  contacts.phoneE164!,
+                                  'Support number',
+                                ),
+                                openSemanticLabel: 'Call support',
+                                onOpen: () =>
+                                    _open('tel:${contacts.phoneE164!}'),
+                              ),
+                            if (contacts.email != null)
+                              SupportContactTile(
+                                iconName: PhIcon.folder,
+                                title: 'Support email',
+                                value: contacts.email!,
+                                description: 'Answered within one working day.',
+                                actionLabel: 'Copy address',
+                                actionSemanticLabel:
+                                    'Copy the support email address',
+                                onAction: () =>
+                                    _copy(contacts.email!, 'Support email'),
+                                openSemanticLabel: 'Email support',
+                                onOpen: () =>
+                                    _open('mailto:${contacts.email!}'),
+                              ),
+                            if (contacts.isEmpty)
+                              Padding(
+                                padding: EdgeInsets.only(top: AppSpacing.x2.h),
+                                child: Text(
+                                  'No phone line is published right now. '
+                                  'Raising a request below is the way to reach '
+                                  'the team.',
+                                  style: AppText.poppins(
+                                    size: AppFontSize.xs,
+                                    height: 1.45,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: AppSpacing.x4.h),
+
+                      // ---- Emergency: never a fake call button.
+                      _EmergencyCard(
+                        number: _emergencyNumber,
+                        onOpenAmbulance: () =>
+                            context.push(AppRoutes.ambulance),
+                        onCopy: () => _copy(
+                          _emergencyNumber,
+                          'Emergency number $_emergencyNumber',
+                        ),
+                      ),
+                      SizedBox(height: AppSpacing.x4.h),
+
+                      // ---- Raise a request (signed-in only: the endpoint
+                      // needs a token).
+                      if (isSignedIn)
+                        _RequestForm(
+                          form: form,
+                          subject: _subject,
+                          description: _description,
+                          onCategory: controller.setCategory,
+                          onPriority: controller.setPriority,
+                          onSubject: controller.setSubject,
+                          onDescription: controller.setDescription,
+                          onSubmit: _submit,
+                        )
+                      else
+                        AppCard(
+                          padding: EdgeInsets.all(AppSpacing.x4.w),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const SupportCardTitle(
+                                title: 'Raise a request',
+                                subtitle:
+                                    'Sign in to raise a request and follow its '
+                                    'replies here.',
+                              ),
+                              SizedBox(height: AppSpacing.x2.h),
+                              AppButton(
+                                label: 'Sign In',
+                                fullWidth: true,
+                                onPressed: () => context.go(AppRoutes.login),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
+                        ),
+                      SizedBox(height: AppSpacing.x4.h),
+
+                      // ---- Policies (CM-02: the same slugs sign-up links to).
+                      AppCard(
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.x4.w,
+                          AppSpacing.x4.h,
+                          AppSpacing.x4.w,
+                          AppSpacing.x2.h,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SupportCardTitle(title: 'Policies'),
+                            for (var i = 0; i < _policies.length; i++)
+                              SupportLinkTile(
+                                iconName: PhIcon.folder,
+                                label: _policies[i].title,
+                                semanticLabel: 'Read the ${_policies[i].title}',
+                                showDivider: i < _policies.length - 1,
+                                onTap: () => context.push(
+                                  AppRoutes.legalPath(_policies[i].slug),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+
+  /// The three documents the backend publishes (§3.2). Titles come from the
+  /// document itself once opened; these are the link labels.
+  static const List<({String slug, String title})> _policies = [
+    (slug: AppRoutes.legalTerms, title: 'Terms of Service'),
+    (slug: AppRoutes.legalPrivacy, title: 'Privacy Policy'),
+    (slug: AppRoutes.legalGuidelines, title: 'Community Guidelines'),
+  ];
 
   void _leave(BuildContext context) {
     if (context.canPop()) {
@@ -348,6 +391,141 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
       return;
     }
     context.go(AppRoutes.profile);
+  }
+}
+
+/// The "raise a request" card — category, priority, subject, description.
+class _RequestForm extends StatelessWidget {
+  const _RequestForm({
+    required this.form,
+    required this.subject,
+    required this.description,
+    required this.onCategory,
+    required this.onPriority,
+    required this.onSubject,
+    required this.onDescription,
+    required this.onSubmit,
+  });
+
+  final TicketFormState form;
+  final TextEditingController subject;
+  final TextEditingController description;
+  final ValueChanged<TicketCategory> onCategory;
+  final ValueChanged<TicketPriority?> onPriority;
+  final ValueChanged<String> onSubject;
+  final ValueChanged<String> onDescription;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: EdgeInsets.all(AppSpacing.x4.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SupportCardTitle(
+            title: 'Raise a request',
+            subtitle:
+                'Tell us what happened. You will get a ticket number and the '
+                'replies appear under My requests.',
+          ),
+          SizedBox(height: AppSpacing.x3.h),
+          AppSelect<TicketCategory>(
+            label: 'What is this about?',
+            value: form.category,
+            options: [
+              for (final category in TicketCategory.values)
+                AppSelectOption<TicketCategory>(category, category.label),
+            ],
+            onChanged: (value) {
+              if (value != null) onCategory(value);
+            },
+          ),
+          if (form.errorFor(TicketFormField.category) != null)
+            Padding(
+              padding: EdgeInsets.only(top: 6.h),
+              child: Text(
+                form.errorFor(TicketFormField.category)!,
+                style: AppText.poppins(
+                  size: AppFontSize.xs,
+                  color: AppColors.dangerText,
+                ),
+              ),
+            ),
+          SizedBox(height: AppSpacing.x4.h),
+          AppSelect<TicketPriority?>(
+            label: 'How urgent is it?',
+            value: form.priority,
+            placeholder: 'Normal',
+            options: [
+              for (final priority in TicketPriority.values)
+                AppSelectOption<TicketPriority?>(priority, priority.label),
+            ],
+            onChanged: onPriority,
+          ),
+          SizedBox(height: AppSpacing.x4.h),
+          AppTextField(
+            label: 'Subject',
+            controller: subject,
+            hintText: 'Refund not received',
+            maxLength: 200,
+            textCapitalization: TextCapitalization.sentences,
+            textInputAction: TextInputAction.next,
+            errorText: form.errorFor(TicketFormField.subject),
+            onChanged: onSubject,
+          ),
+          SizedBox(height: AppSpacing.x4.h),
+          AppTextField(
+            label: 'What happened?',
+            controller: description,
+            hintText: 'Include the booking reference if you have one',
+            maxLines: 5,
+            maxLength: 5000,
+            textCapitalization: TextCapitalization.sentences,
+            errorText: form.errorFor(TicketFormField.description),
+            helperText: 'At least 20 characters',
+            onChanged: onDescription,
+          ),
+          SizedBox(height: AppSpacing.x4.h),
+          TicketAttachmentsField(form: newTicketForm, enabled: !form.isSending),
+          if (form.failure != null) ...[
+            SizedBox(height: AppSpacing.x3.h),
+            Container(
+              padding: EdgeInsets.all(AppSpacing.x3.w),
+              decoration: BoxDecoration(
+                color: AppColors.dangerSoft,
+                borderRadius: AppRadii.md,
+              ),
+              child: Text(
+                form.failure!.userMessage,
+                style: AppText.poppins(
+                  size: AppFontSize.xs,
+                  height: 1.45,
+                  color: AppColors.dangerText,
+                ),
+              ),
+            ),
+          ],
+          SizedBox(height: AppSpacing.x5.h),
+          Consumer(
+            builder: (context, ref, _) {
+              final waiting = ref.watch(
+                ticketAttachmentsProvider(
+                  newTicketForm,
+                ).select((files) => files.isBusy),
+              );
+              return AppButton(
+                label: waiting ? 'Waiting for the file…' : 'Send Request',
+                fullWidth: true,
+                loading: form.isSending,
+                disabled: waiting,
+                onPressed: onSubmit,
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -420,7 +598,7 @@ class _EmergencyCard extends StatelessWidget {
                       label: 'Ambulance',
                       variant: AppButtonVariant.ghost,
                       size: AppButtonSize.sm,
-                      semanticLabel: 'Open the ambulance screen',
+                      semanticLabel: 'Open the ambulance directory',
                       onPressed: onOpenAmbulance,
                     ),
                   ],

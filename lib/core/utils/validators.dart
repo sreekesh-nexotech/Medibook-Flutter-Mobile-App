@@ -61,6 +61,20 @@ abstract final class Validators {
 
   static bool isPhone(String value) => _phone.hasMatch(digitsOf(value));
 
+  /// A dialable number in E.164 form (`+` then 8–15 digits) — what the phone
+  /// field submits once the country code is prefixed, and what the OTP
+  /// sign-in use case receives. [phone] is the *national* check for the
+  /// field itself; running it on an E.164 value rejects every valid number
+  /// as "must be 10 digits".
+  static String? phoneE164(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return 'Enter your mobile number';
+    if (!_phoneE164.hasMatch(trimmed)) return 'Enter a valid mobile number';
+    return null;
+  }
+
+  static final RegExp _phoneE164 = RegExp(r'^\+[1-9]\d{7,14}$');
+
   /// A 6-digit Indian PIN code.
   static String? pincode(String value) {
     final digits = digitsOf(value);
@@ -85,16 +99,22 @@ abstract final class Validators {
       value.trim().isEmpty ? 'Enter $label' : null;
 
   /// A person's name: non-empty, at least two characters, letters/spaces/
-  /// apostrophes/hyphens only (so "D'Souza" and "Anne-Marie" pass).
+  /// apostrophes/hyphens only (so "D'Souza" and "Anne-Marie" pass). Letters
+  /// of any script count — a patient may write "ശ്രീലക്ഷ്മി" or "वर्मा",
+  /// which the server accepts (CL UI-009); combining marks (vowel signs)
+  /// are part of the letter. Digits and symbols are still refused.
   static String? personName(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return 'Enter a name';
     if (trimmed.length < 2) return 'Name is too short';
-    if (!RegExp(r"^[A-Za-z][A-Za-z '.\-]*$").hasMatch(trimmed)) {
-      return 'Use letters only';
-    }
+    if (!_personName.hasMatch(trimmed)) return 'Use letters only';
     return null;
   }
+
+  static final RegExp _personName = RegExp(
+    r"^\p{L}[\p{L}\p{M} '.\-]*$",
+    unicode: true,
+  );
 
   /// A postal address line — non-empty and long enough to be a real line.
   static String? addressLine(String value, {String label = 'an address'}) {

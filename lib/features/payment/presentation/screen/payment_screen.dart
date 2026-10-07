@@ -3,316 +3,425 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/connectivity/connectivity_monitor.dart';
+import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../../core/utils/server_clock.dart';
 import '../../../../app/config/constants.dart';
-import '../../../../app/config/feature_flags.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/fee_breakdown.dart';
-import '../../../../core/mock_data/models/payment.dart';
-import '../../../../core/mock_data/seed_providers.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/utils/money.dart';
 import '../../../../core/widgets/app_button.dart';
-import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/app_confirm_dialog.dart';
 import '../../../../core/widgets/app_countdown.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
-import '../../../../core/widgets/app_segmented_tabs.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../../../core/widgets/app_unsaved_changes_guard.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
+import '../../../../core/widgets/states/app_error_view.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../../auth/application/providers/auth_provider.dart';
+import '../../../booking/application/providers/booking_draft_provider.dart';
+import '../../../booking/application/providers/booking_providers.dart';
+import '../../../booking/presentation/booking_routes.dart';
 import '../../../booking/presentation/components/confirm_summary.dart';
-import '../../../booking/presentation/components/coupon_field.dart';
 import '../../../booking/presentation/components/fee_breakdown_card.dart';
 import '../../../booking/presentation/components/flow_screen_enter.dart';
-import '../../../booking/presentation/controllers/booking_controller.dart';
-import '../../domain/counter_payment_window.dart';
-import '../components/payment_method_tile.dart';
-import '../controllers/payment_controller.dart';
+import '../../application/providers/payment_providers.dart';
+import '../../application/states/payment_flow_state.dart';
+import '../../domain/entities/price_change.dart';
 
-/// In-app payment (CM-17, CM-18, CM-20, CM-23). Route: `/booking/payment`.
+/// In-app payment (§9.2–§9.6). Route: `/booking/payment`.
 ///
-/// The audit's finding was the bluntest one in §2.2: *"No payment screen of any
-/// kind: no method choice, no order summary, no failure or retry state."* This
-/// screen is all four —
+/// The booking already exists when this screen opens (`POST
+/// /patient/appointments` ran on the summary step), so it shows the
+/// appointment's reference and token, the fee snapshot, the countdown to
+/// `booking_deadline_at`, and one button: **Pay ₹amount** — the amount from
+/// the payment order, never a quote. Tapping it opens the Razorpay SDK,
+/// which offers the payment methods itself; there is no method list here and
+/// no pay-at-hospital (§9). On success the order is verified; on failure the
+/// result screen offers a retry (a new order, same deadline). Coming back to
+/// this screen without a result re-reads the order (§9.5).
 ///
-/// * the order summary is the same [ConfirmSummary] the booking step shows,
-///   plus the full [FeeBreakdownCard] (CM-13) and a live coupon control
-///   (CM-19);
-/// * every method in `paymentMethodsProvider` is a selectable row, with Pay at
-///   Hospital a peer of the online ones and its counter-confirmation window on
-///   screen (CM-18);
-/// * the slot stays held with a visible countdown and is released on expiry
-///   (X-02);
-/// * the pay button is bound to `AppButton(loading:)`, which blocks the repeat
-///   tap that audit §3.5.6 says *"creates two bookings"*, and the controller
-///   refuses a second attempt as well;
-/// * failure lands on `/booking/payment/result?status=failed`, which offers
-///   retry and change-method.
-///
-/// **No gateway.** There is no payment SDK in this build and none may be
-/// added, so authorisation is simulated — stated on screen with an
-/// [AppStubBanner], and in demo mode the outcome is selectable so the failure
-/// and pending paths are reachable. Nothing here reports a collection that did
-/// not happen.
-///
-/// It sits **on top of** `/booking`, so the booking draft is still alive
-/// underneath; leaving through back releases the hold.
-///
-/// Router wiring:
-/// ```dart
-/// GoRoute(
-///   path: AppRoutes.bookingPayment,
-///   builder: (_, __) => const PaymentScreen(),
-/// )
-/// ```
+/// It sits **on top of** `/booking`, so the draft and the booking result are
+/// still alive underneath. Opened from an appointment instead
+/// (`?appt=<id>&order=<id>`, the detail's "Retry payment"), there is no draft:
+/// the booking is re-read from `GET /patient/appointments/{id}` (§9.4).
 class PaymentScreen extends ConsumerStatefulWidget {
-  const PaymentScreen({super.key});
+  const PaymentScreen({super.key, this.appointmentId, this.orderId});
+
+  /// Set when reached from an appointment rather than the booking flow.
+  final String? appointmentId;
+
+  /// The order the appointment screen knew about; the detail's own
+  /// `payment_order` wins when both exist.
+  final String? orderId;
 
   @override
   ConsumerState<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _PaymentScreenState extends ConsumerState<PaymentScreen> {
+class _PaymentScreenState extends ConsumerState<PaymentScreen>
+    with WidgetsBindingObserver {
+  bool _navigated = false;
+
+  /// Set once the patient has agreed to a changed price, so a retry does not
+  /// ask again.
+  bool _priceChangeAccepted = false;
+
   @override
   void initState() {
     super.initState();
-    // A payment screen opened for a booking that has not been attempted yet
-    // starts clean, so a previous booking's failure cannot colour this one.
+    WidgetsBinding.instance.addObserver(this);
     Future.microtask(() {
       if (!mounted) return;
-      final flow = ref.read(paymentControllerProvider);
-      if (flow.appointmentId == null) {
-        ref.read(paymentControllerProvider.notifier).reset();
-      }
-      // Default the method so the pay button is never disabled for want of a
-      // choice the patient did not know they had to make.
-      final draft = ref.read(bookingControllerProvider);
-      if (draft.method == null) {
-        final methods = ref.read(paymentMethodsProvider);
-        if (methods.isNotEmpty) {
-          ref
-              .read(bookingControllerProvider.notifier)
-              .pickMethod(methods.first);
-        }
+      final booking = ref.read(bookingSubmitProvider).result;
+      if (booking != null) {
+        ref.read(paymentFlowProvider.notifier).start(booking);
       }
     });
   }
 
-  void _leave() {
-    // Walking out of the payment step gives the slot back — holding a slot for
-    // someone who has left is the other half of X-02.
-    ref.read(bookingControllerProvider.notifier).releaseHold();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from the gateway (or a wallet app) with no result: the gateway
+    // may have told the backend directly, so re-read the order (§9.5).
+    if (state != AppLifecycleState.resumed) return;
+    final flow = ref.read(paymentFlowProvider);
+    if (flow.phase == PaymentPhase.idle && flow.hasOrder) {
+      ref.read(paymentFlowProvider.notifier).refreshOrder();
+    }
+  }
+
+  /// True while the booking is held and unpaid — the guard's condition,
+  /// set by [_shell] on every build.
+  bool _holding = false;
+
+  static const String _leaveTitle = 'Leave payment?';
+  static const String _leaveConsequence =
+      'Your slot is only held for a few more minutes. If you do not pay '
+      'in time the booking is released and nothing is charged.';
+
+  /// The header's back arrow. `Navigator.maybePop`, **not** `context.pop()`:
+  /// go_router's pop skips the "Leave payment?" guard, so the arrow used to
+  /// leave at once while the slot was held (BL-PAY-027).
+  Future<void> _leave() async {
     if (context.canPop()) {
-      context.pop();
+      await Navigator.maybePop(context);
       return;
+    }
+    // Reached directly (no page below): ask the same question, then Home.
+    if (_holding) {
+      final leave = await showDiscardChangesDialog(
+        context,
+        title: _leaveTitle,
+        consequence: _leaveConsequence,
+        discardLabel: 'Leave',
+        keepLabel: 'Keep paying',
+      );
+      if (leave != true || !mounted) return;
     }
     context.go(AppRoutes.home);
   }
 
-  Future<void> _pay(FeeBreakdown fee, PaymentMethod method) async {
-    final draft = ref.read(bookingControllerProvider);
-    final outcome = await ref
-        .read(paymentControllerProvider.notifier)
-        .pay(draft: draft, fee: fee, method: method);
-    // null means the attempt was refused (one already in flight, or the hold
-    // has gone) — there is nothing to navigate to.
-    if (outcome == null || !mounted) return;
+  /// The difference between the confirm step's total and what this booking
+  /// costs, or null. Only known inside the booking flow.
+  PriceChange? _priceChange(int duePaise) => PriceChange.between(
+    quotedPaise: ref.read(bookingSubmitProvider).quotedTotalPaise,
+    duePaise: duePaise,
+  );
 
-    final appointmentId = ref.read(paymentControllerProvider).appointmentId;
-    final status = switch (outcome) {
-      PaymentOutcome.success => AppRoutes.paymentStatusSuccess,
-      PaymentOutcome.failed => AppRoutes.paymentStatusFailed,
-      PaymentOutcome.pending => AppRoutes.paymentStatusPending,
+  static String _priceChangeMessage(PriceChange change) =>
+      'You were shown ${Money.inr(change.quotedPaise)} when you confirmed. '
+      'The hospital\'s price for this appointment is '
+      '${Money.inr(change.duePaise)}. Nothing has been charged yet.';
+
+  /// Paying needs the connection: say so before anything opens, rather than
+  /// letting the gateway fail with an unrelated message (offline audit,
+  /// 6 Oct). True when it is fine to go on.
+  bool _ensureOnline() {
+    final monitor = ref.read(connectivityMonitorProvider);
+    if (monitor.isOnline) return true;
+    ref
+        .read(toastControllerProvider.notifier)
+        .show(
+          monitor.hasRoute
+              ? NetworkFailure.unreachableMessage
+              : const NetworkFailure().userMessage,
+        );
+    return false;
+  }
+
+  Future<void> _pay() async {
+    if (!_ensureOnline()) return;
+    // A changed price is agreed to before any money moves (BL-BOOK-035).
+    final flowNow = ref.read(paymentFlowProvider);
+    final due =
+        (flowNow.order ?? ref.read(bookingSubmitProvider).result?.paymentOrder)
+            ?.amountPaise;
+    final change = due == null ? null : _priceChange(due);
+    if (change != null && !_priceChangeAccepted) {
+      final agreed = await showAppConfirmDialog(
+        context,
+        title: 'The price has changed',
+        consequence: _priceChangeMessage(change),
+        confirmLabel: 'Pay ${Money.inr(change.duePaise)}',
+        cancelLabel: 'Not now',
+        isDestructive: false,
+        iconName: PhIcon.warningCircleFill,
+      );
+      if (agreed != true || !mounted) return;
+      _priceChangeAccepted = true;
+    }
+
+    final user = ref.read(currentUserProvider);
+    final phase = await ref
+        .read(paymentFlowProvider.notifier)
+        .pay(
+          contact: (
+            name: user?.name,
+            phone: user?.phoneE164,
+            email: user?.email,
+          ),
+        );
+    if (!mounted) return;
+    _routeFor(phase);
+  }
+
+  /// Every final phase has a result screen; a cancelled sheet stays here.
+  void _routeFor(PaymentPhase phase) {
+    final flow = ref.read(paymentFlowProvider);
+    final appointmentId = flow.appointment?.id;
+    final status = switch (phase) {
+      PaymentPhase.paid => PaymentResultStatus.success,
+      PaymentPhase.pendingApproval => PaymentResultStatus.pendingApproval,
+      PaymentPhase.latePayment => PaymentResultStatus.late,
+      PaymentPhase.expired => PaymentResultStatus.expired,
+      PaymentPhase.failed =>
+        flow.wasCancelled ? null : PaymentResultStatus.failed,
+      _ => null,
     };
-    // Pushed, not `go`: the failure path's "Try again" pops straight back to
-    // this screen with the draft, the method and the hold intact.
-    await context.push<void>(
-      AppRoutes.bookingPaymentResultPath(status, appointmentId: appointmentId),
-    );
+    if (status == null || _navigated) return;
+    _navigated = true;
+    // Pushed, not `go`: the failure path's "Try again" pops back to this
+    // screen with the order intact.
+    context
+        .push<void>(
+          AppRoutes.bookingPaymentResultPath(
+            status,
+            appointmentId: appointmentId,
+          ),
+        )
+        .whenComplete(() => _navigated = false);
+  }
+
+  ({String appointmentId, String? orderId})? get _resumeKey {
+    final id = widget.appointmentId;
+    return id == null ? null : (appointmentId: id, orderId: widget.orderId);
   }
 
   @override
   Widget build(BuildContext context) {
-    final draft = ref.watch(bookingControllerProvider);
-    final flow = ref.watch(paymentControllerProvider);
-    final doctorId = draft.doctorId;
-    final slot = draft.slot;
+    final resumeKey = _resumeKey;
+    final resumed = resumeKey == null
+        ? null
+        : ref.watch(resumedBookingProvider(resumeKey));
+    if (resumeKey != null) {
+      // The re-read booking enters the flow exactly as a fresh one does.
+      ref.listen(resumedBookingProvider(resumeKey), (previous, next) {
+        final value = next.valueOrNull;
+        if (value != null) {
+          ref.read(paymentFlowProvider.notifier).start(value);
+        }
+      });
+    }
+    final booking =
+        ref.watch(bookingSubmitProvider).result ?? resumed?.valueOrNull;
+    final flow = ref.watch(paymentFlowProvider);
+    final draft = ref.watch(bookingDraftProvider);
 
-    if (doctorId == null || slot == null) {
+    // A phase reached without going through `_pay` (the countdown expiring,
+    // a poll finding the order paid) still gets its result screen.
+    ref.listen<PaymentFlowState>(paymentFlowProvider, (previous, next) {
+      if (previous?.phase != next.phase && next.phase.isFinal) {
+        _routeFor(next.phase);
+      }
+    });
+
+    if (booking == null && resumed != null) {
       return _shell(
+        hasUnsavedChanges: false,
+        child: resumed.isLoading
+            ? const AppLoadingView(label: 'Loading your booking…')
+            : AppErrorView(
+                failure: resumed.error is Failure
+                    ? resumed.error! as Failure
+                    : const UnknownFailure(),
+                onRetry: () =>
+                    ref.invalidate(resumedBookingProvider(resumeKey!)),
+              ),
+      );
+    }
+    if (booking == null) {
+      return _shell(
+        hasUnsavedChanges: false,
         child: AppEmptyView(
           iconName: MedIcon.bag,
           headline: 'Nothing to pay for yet',
-          body: 'Pick a doctor, a day and a time first.',
+          body:
+              'Pick a doctor, a time and a patient, then confirm the booking.',
           actionLabel: 'Back to booking',
           onAction: _leave,
         ),
-        hasUnsavedChanges: false,
       );
     }
 
-    if (draft.holdExpired) {
-      return _shell(
-        child: AppEmptyView(
-          iconName: MedIcon.clock,
-          headline: 'Your slot hold ran out',
-          body:
-              'We released ${slot.rangeLabel} so another patient could book '
-              'it. Nothing has been charged. Pick a time again.',
-          actionLabel: 'Pick another slot',
-          onAction: () {
-            ref.read(bookingControllerProvider.notifier).backToSlotSelection();
-            _leave();
-          },
-        ),
-        hasUnsavedChanges: false,
-      );
-    }
+    final appointment = flow.appointment ?? booking.appointment;
+    final order = flow.order ?? booking.paymentOrder;
+    final deadline = flow.deadline ?? appointment.bookingDeadlineAt;
+    final busy = flow.phase.isBusy;
 
-    // Returning here with the back gesture after a settled attempt must not
-    // offer to pay a second time. The appointment already exists and the
-    // ledger already has its entry; a second tap would add a second charge to
-    // the same booking.
-    final settled = flow.outcome != null && !flow.outcome!.isFailure;
-    if (settled) {
-      final settledId = flow.appointmentId;
+    if (flow.phase.isSettled) {
       return _shell(
         hasUnsavedChanges: false,
         child: AppEmptyView(
           iconName: MedIcon.bag,
-          headline: flow.outcome == PaymentOutcome.pending
-              ? 'Already confirmed — pay at the desk'
-              : 'This booking is already paid',
+          headline: 'This booking is already paid',
           body:
-              'Nothing further is due here. Open the appointment for its '
+              'Nothing further is due. Open the appointment for its '
               'reference, token and receipt.',
-          // The action is only offered when there is something to open —
-          // never a label with nothing behind it (THE LAW).
-          actionLabel: settledId == null ? 'Back to Home' : 'View appointment',
-          onAction: settledId == null
-              ? () => context.go(AppRoutes.home)
-              : () => context.go(AppRoutes.appointmentDetailPath(settledId)),
-          secondaryLabel: settledId == null ? null : 'Back to Home',
-          onSecondary: settledId == null
-              ? null
-              : () => context.go(AppRoutes.home),
+          actionLabel: 'View appointment',
+          onAction: () =>
+              context.go(AppRoutes.appointmentDetailPath(appointment.id)),
+          secondaryLabel: 'Back to Home',
+          onSecondary: () => context.go(AppRoutes.home),
+        ),
+      );
+    }
+    if (flow.phase == PaymentPhase.expired ||
+        flow.phase == PaymentPhase.latePayment) {
+      return _shell(
+        hasUnsavedChanges: false,
+        child: AppEmptyView(
+          iconName: PhIcon.clock,
+          headline: flow.phase == PaymentPhase.expired
+              ? 'The payment window has closed'
+              : 'Payment arrived too late',
+          body: flow.phase == PaymentPhase.expired
+              ? 'Unpaid bookings are released after 5 minutes so the slot '
+                    'goes back to other patients. Nothing has been charged. '
+                    'Please book again.'
+              : 'The money reached us after the deadline, so this booking '
+                    'was cancelled and a full refund has been started.',
+          actionLabel: 'Book again',
+          onAction: () {
+            ref.read(bookingSubmitProvider.notifier).reset();
+            ref.read(bookingDraftProvider.notifier).clearSlot();
+            _leave();
+          },
+          secondaryLabel: 'Back to Home',
+          onSecondary: () => context.go(AppRoutes.home),
         ),
       );
     }
 
-    final doctor = ref.watch(doctorByIdProvider(doctorId));
-    final fee = ref.watch(
-      feeBreakdownProvider((doctorId: doctorId, couponCode: draft.couponCode)),
-    );
-    final methods = ref.watch(paymentMethodsProvider);
-    final hospitalName = draft.hospitalId == null
-        ? doctor.hospital
-        : ref.watch(hospitalByIdProvider(draft.hospitalId!)).name;
-    final method = draft.method ?? methods.first;
-    final submitting = flow.isSubmitting;
-
     return _shell(
-      // Once a booking exists there is nothing left to lose by leaving, so the
-      // guard stands down rather than nagging.
-      hasUnsavedChanges: flow.appointmentId == null,
-      onDiscard: () =>
-          ref.read(bookingControllerProvider.notifier).releaseHold(),
-      footer: _footer(fee: fee, method: method, submitting: submitting),
+      // The backend holds the slot for 5 minutes whether or not the patient
+      // stays here; leaving just forfeits the attempt, so the guard says so.
+      hasUnsavedChanges: !busy,
+      footer: _footer(order: order, busy: busy, phase: flow.phase),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (draft.holdUntil != null) ...[
+          if (deadline != null) ...[
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: AppCountdownPill(
-                deadline: draft.holdUntil!,
+                // The server's deadline, as the phone's clock will reach it
+                // — right even when the phone's clock is wrong (BL-CORE-007).
+                deadline: ServerClock.onDeviceClock(deadline).toLocal(),
                 prefix: 'Slot held for',
                 onExpired: () =>
-                    ref.read(bookingControllerProvider.notifier).expireHold(),
+                    ref.read(paymentFlowProvider.notifier).expire(),
               ),
             ),
             SizedBox(height: AppSpacing.x4.h),
           ],
-          const AppStubBanner(
-            title: 'Simulated payment',
-            body:
-                'This build has no payment gateway, so the authorisation step '
-                'is simulated. Everything else — the booking, the reference, '
-                'the receipt entry — is real.',
-            margin: EdgeInsets.zero,
-          ),
-          if (FeatureFlags.demoMode) ...[
-            SizedBox(height: AppSpacing.x3.h),
-            _OutcomePicker(
-              value: flow.simulatedOutcome,
-              enabled: !submitting,
-              onChanged: (outcome) => ref
-                  .read(paymentControllerProvider.notifier)
-                  .chooseSimulatedOutcome(outcome),
+          if (flow.failureMessage != null) ...[
+            AppErrorBanner(
+              message: flow.failureMessage!,
+              tone: flow.wasCancelled
+                  ? AppBannerTone.warning
+                  : AppBannerTone.danger,
+              iconName: PhIcon.xCircle,
             ),
+            SizedBox(height: AppSpacing.x3.h),
           ],
-          SizedBox(height: AppSpacing.x5.h),
+          if (flow.failure != null && flow.failureMessage == null) ...[
+            AppInlineError(
+              failure: flow.failure!,
+              onRetry: () =>
+                  ref.read(paymentFlowProvider.notifier).refreshOrder(),
+            ),
+            SizedBox(height: AppSpacing.x3.h),
+          ],
+          if (_priceChange(order.amountPaise) case final change?) ...[
+            AppErrorBanner(
+              message: 'The price has changed. ${_priceChangeMessage(change)}',
+              iconName: PhIcon.warningCircleFill,
+            ),
+            SizedBox(height: AppSpacing.x3.h),
+          ],
           _heading('Order summary'),
           SizedBox(height: AppSpacing.x3.h),
           ConfirmSummary(
-            doctor: doctor,
-            patientName: draft.patientName,
-            departmentName: draft.departmentName ?? doctor.department,
-            hospitalName: hospitalName,
-            scheduledAt: slot.start,
-            slotRangeLabel: slot.rangeLabel,
-            bookingRef: draft.bookingRef ?? '—',
-            token: draft.token ?? '—',
-          ),
-          SizedBox(height: 14.h),
-          CouponField(
-            appliedCode: draft.couponCode,
-            discount: fee.discount,
-            errorText: draft.couponError,
-            enabled: !submitting,
-            onApply: (code) => _applyCoupon(doctorId, code),
-            onRemove: () =>
-                ref.read(bookingControllerProvider.notifier).removeCoupon(),
+            appointment: appointment,
+            patientName: draft.person?.fullName ?? 'Patient on file',
+            timezone: appointment.hospitalTimezone ?? draft.hospitalTimezone,
           ),
           SizedBox(height: 14.h),
           FeeBreakdownCard(
-            fee: fee,
+            rows: FeeRowData.fromAppointment(appointment),
+            totalPaise: order.amountPaise,
             title: 'Payment summary',
             footnote:
-                'GST at ${fee.taxLabel} is charged on the consultation fee '
-                'after any discount. The convenience fee is not refundable.',
+                'Priced for ${appointment.scheduledDate} by the hospital. '
+                'The convenience fee is not refundable.',
           ),
-          SizedBox(height: AppSpacing.x6.h),
-          _heading('How would you like to pay?'),
-          SizedBox(height: AppSpacing.x3.h),
-          for (final m in methods) ...[
-            PaymentMethodTile(
-              method: m,
-              selected: m == method,
-              enabled: !submitting,
-              note: m.isOnline
-                  ? null
-                  : CounterPaymentWindow.noticeFor(slot.start),
-              onSelected: () =>
-                  ref.read(bookingControllerProvider.notifier).pickMethod(m),
+          SizedBox(height: AppSpacing.x5.h),
+          _heading('How you pay'),
+          SizedBox(height: AppSpacing.x2.h),
+          Text(
+            'Tap Pay to open the secure Razorpay sheet, which offers UPI, '
+            'cards, net banking and wallets. Your booking is confirmed the '
+            'moment the payment is verified.',
+            style: AppText.poppins(
+              size: AppFontSize.sm,
+              color: AppColors.textBody,
+              height: 1.5,
             ),
-            SizedBox(height: AppSpacing.x3.h),
+          ),
+          if (order.attempts > 1) ...[
+            SizedBox(height: AppSpacing.x2.h),
+            Text(
+              'Attempt ${order.attempts} — the deadline above has not '
+              'changed.',
+              style: AppText.poppins(
+                size: AppFontSize.xs,
+                color: AppColors.textMuted,
+              ),
+            ),
           ],
         ],
       ),
     );
-  }
-
-  void _applyCoupon(String doctorId, String code) {
-    final notifier = ref.read(bookingControllerProvider.notifier);
-    final candidate = ref.read(
-      feeBreakdownProvider((doctorId: doctorId, couponCode: code)),
-    );
-    if (candidate.couponCode == null || candidate.discount.isZero) {
-      notifier.applyCoupon(error: "'$code' is not a valid coupon code.");
-      return;
-    }
-    notifier.applyCoupon(code: code);
   }
 
   Widget _heading(String text) => Text(
@@ -325,11 +434,14 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   );
 
   Widget _footer({
-    required FeeBreakdown fee,
-    required PaymentMethod method,
-    required bool submitting,
+    required PaymentPhase phase,
+    required bool busy,
+    required dynamic order,
   }) {
-    final online = method.isOnline;
+    final amount = Money.inr(order.amountPaise as int);
+    final retryable =
+        phase == PaymentPhase.failed &&
+        !ref.read(paymentFlowProvider).wasCancelled;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
@@ -348,27 +460,36 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           AppButton(
-            label: online ? 'Pay ${fee.total.format()}' : 'Confirm booking',
+            label: switch (phase) {
+              PaymentPhase.checkout => 'Waiting for the payment sheet…',
+              PaymentPhase.verifying => 'Confirming payment…',
+              PaymentPhase.retrying => 'Starting a new payment…',
+              PaymentPhase.polling => 'Checking payment status…',
+              _ => retryable ? 'Try again — $amount' : 'Pay $amount',
+            },
             fullWidth: true,
             // Both the spinner and the repeat-tap block come from this one
-            // flag (audit §3.5.6). The controller refuses a second attempt
-            // too, so the guard does not depend on the widget alone.
-            loading: submitting,
-            semanticLabel: submitting
+            // flag; the controller refuses a second attempt too.
+            loading: busy,
+            semanticLabel: busy
                 ? 'Payment in progress, please wait'
-                : (online
-                      ? 'Pay ${fee.total.format()} by ${method.label}'
-                      : 'Confirm the booking and pay ${fee.total.format()} '
-                            'at the hospital desk'),
-            onPressed: () => _pay(fee, method),
+                : 'Pay $amount with Razorpay',
+            onPressed: busy
+                ? null
+                : retryable
+                ? () async {
+                    if (!_ensureOnline()) return;
+                    final next = await ref
+                        .read(paymentFlowProvider.notifier)
+                        .retry();
+                    if (mounted) _routeFor(next);
+                  }
+                : _pay,
           ),
           SizedBox(height: AppSpacing.x2.h),
           Text(
-            online
-                ? 'You will not be charged twice — tapping again while this '
-                      'is running does nothing.'
-                : 'Nothing is charged now. The desk collects '
-                      '${fee.total.format()}.',
+            'You will not be charged twice — tapping again while this is '
+            'running does nothing.',
             textAlign: TextAlign.center,
             style: AppText.poppins(
               size: AppFontSize.xxs,
@@ -385,16 +506,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   Widget _shell({
     required Widget child,
     required bool hasUnsavedChanges,
-    VoidCallback? onDiscard,
     Widget? footer,
   }) {
+    _holding = hasUnsavedChanges;
     return AppUnsavedChangesGuard(
       hasUnsavedChanges: hasUnsavedChanges,
-      onDiscard: onDiscard,
-      title: 'Leave payment?',
-      consequence:
-          'Your slot is only held for a few more minutes. Leaving releases '
-          'it and nothing is booked.',
+      title: _leaveTitle,
+      consequence: _leaveConsequence,
       discardLabel: 'Leave',
       keepLabel: 'Keep paying',
       child: Scaffold(
@@ -415,72 +533,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Demo-only: which outcome the simulated gateway returns.
-///
-/// This exists so the **failure** and **pending** screens the audit asked for
-/// can actually be reached in a build with no gateway. It is gated on
-/// [FeatureFlags.demoMode] and labelled as a simulation, rather than hidden —
-/// a reviewer should be able to see the decline path without a card that
-/// declines.
-class _OutcomePicker extends StatelessWidget {
-  const _OutcomePicker({
-    required this.value,
-    required this.onChanged,
-    this.enabled = true,
-  });
-
-  final PaymentOutcome value;
-  final ValueChanged<PaymentOutcome> onChanged;
-  final bool enabled;
-
-  static const Map<String, PaymentOutcome> _byLabel = {
-    'Approve': PaymentOutcome.success,
-    'Decline': PaymentOutcome.failed,
-    'Leave pending': PaymentOutcome.pending,
-  };
-
-  String get _activeLabel => _byLabel.entries
-      .firstWhere(
-        (entry) => entry.value == value,
-        orElse: () => _byLabel.entries.first,
-      )
-      .key;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: EdgeInsets.all(14.w),
-      color: AppColors.surfaceAlt,
-      shadow: AppShadowToken.none,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Simulated gateway result',
-            style: AppText.poppins(
-              size: AppFontSize.xs,
-              weight: AppText.semibold,
-              color: AppColors.textStrong,
-            ),
-          ),
-          SizedBox(height: AppSpacing.x2.h),
-          AppSegmentedTabs(
-            tabs: _byLabel.keys.toList(),
-            active: _activeLabel,
-            onChanged: enabled
-                ? (label) {
-                    final outcome = _byLabel[label];
-                    if (outcome != null) onChanged(outcome);
-                  }
-                : null,
-          ),
-        ],
       ),
     );
   }

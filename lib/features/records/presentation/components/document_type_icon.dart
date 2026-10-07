@@ -1,5 +1,5 @@
-import '../../../../core/mock_data/models/medical_record.dart';
 import '../../../../core/widgets/app_icon.dart';
+import '../../domain/entities/medical_document.dart';
 
 /// The one place a [DocumentType] maps to a glyph, so the record card, the
 /// type picker, the filter chips and the document detail all show the same
@@ -9,11 +9,12 @@ abstract final class DocumentTypeIcon {
 
   /// A [MedIcon] name for [type].
   static String of(DocumentType type) => switch (type) {
-    DocumentType.labReport => MedIcon.records,
-    DocumentType.prescription => MedIcon.edit,
-    DocumentType.scan => MedIcon.eye,
-    DocumentType.dischargeSummary => MedIcon.hospital,
+    DocumentType.labReport => PhIcon.folder,
+    DocumentType.prescription => PhIcon.pencilSimple,
+    DocumentType.scan => PhIcon.eye,
+    DocumentType.dischargeSummary => PhIcon.firstAid,
     DocumentType.invoice => MedIcon.bag,
-    DocumentType.other => MedIcon.records,
+    DocumentType.vaccination => PhIcon.checkBold,
+    DocumentType.other => PhIcon.folder,
   };
 }

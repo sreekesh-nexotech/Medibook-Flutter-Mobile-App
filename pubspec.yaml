@@ -10,9 +10,9 @@ environment:
 # The scaffold shipped with a newer Dart SDK (^3.12.2); per the maintainer's
 # decision we keep that SDK and resolve UI packages at their latest compatible
 # versions rather than pinning to Technical_stack.md's Flutter 3.24.5 set.
-# This session builds the PRESENTATION layer only — networking (dio/retrofit),
-# persistence (hive/isar), payments (razorpay) and codegen (freezed) are
-# intentionally absent until the data/domain layers are built.
+# The data layer uses dio (no retrofit/freezed codegen), hive with AES
+# encryption (no isar) and razorpay_flutter; each addition beyond
+# Technical_stack.md is commented where it is declared (CL CODE-017).
 dependencies:
   flutter:
     sdk: flutter
@@ -51,11 +51,39 @@ dependencies:
   # Already in the lockfile transitively (flutter_cache_manager); promoted to a
   # direct dependency because core/storage/hive/keys.dart imports it.
   crypto: ^3.0.7
+  dio: ^5.11.1
+  flutter_secure_storage: ^11.2.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  connectivity_plus: ^7.3.1
+  razorpay_flutter: ^1.4.7
+  url_launcher: ^6.3.2
+  file_picker: ^13.1.0
+  image_picker: ^1.2.3
+  uuid: ^4.6.0
+  web_socket_channel: ^3.0.3
+  path_provider: ^2.1.6
+  share_plus: ^13.3.0
+
+  # Crash reporting backend, behind app/monitoring/crash_reporting.dart.
+  sentry_flutter: ^9.30.1
+
+  # Google Play in-app updates (features/app_update). package_info_plus reads
+  # the installed version to compare with the backend's min_versions.
+  in_app_update: ^5.0.0
+  package_info_plus: ^10.2.2
+
+  # Device location for "Hospitals Near You" (owner decision 6 Oct 2026,
+  # CL DISC-015): one coarse fix is sent as lat/lng and the backend sorts by
+  # distance. Not in Technical_stack.md — an approved addition.
+  geolocator: ^14.0.1
+  meta: ^1.18.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  mocktail: ^1.0.5
 
   # NOTE: flutter_launcher_icons and flutter_native_splash are NOT installed.
   # The Android mipmap set, the adaptive icon, the iOS AppIcon.appiconset and
@@ -76,6 +104,8 @@ flutter:
   assets:
     - assets/icons/
     - assets/images/
+    # Font licences (SIL OFL 1.1), shown on Profile > Open-source licences.
+    - assets/licenses/
 
   fonts:
     - family: Poppins

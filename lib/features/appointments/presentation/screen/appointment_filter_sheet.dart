@@ -15,33 +15,22 @@ import '../../../../core/widgets/app_date_picker_sheet.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_select.dart';
+import '../../domain/entities/appointment.dart';
 import '../../domain/entities/appointment_filter.dart';
-import '../../domain/entities/appointment_status_view.dart';
 import '../components/enter_animations.dart';
-import '../controllers/appointment_filter_controller.dart';
-import '../controllers/appointments_controller.dart';
+import '../../application/providers/appointment_filter_controller.dart';
+import '../../application/providers/appt_tab_controller.dart';
 
 /// Open the appointments filter as a bottom sheet (CM-28).
 ///
-/// ## Sheet, not a pushed screen
-///
 /// `/appointments/filter` exists as a route and [AppointmentFilterScreen]
 /// serves it (deep links and the back button have to work), but the sheet is
-/// the primary surface, for three reasons:
+/// the primary surface: the list stays visible behind the scrim, it matches
+/// every other "choose and come back" surface in the app, and a half-set
+/// filter is abandoned with a swipe.
 ///
-/// 1. **The list is the context.** Filtering is a narrowing gesture on
-///    something you are looking at; a sheet keeps the list and its active
-///    chips visible behind the scrim, so the patient sees what they are
-///    narrowing. A pushed screen replaces the thing being filtered.
-/// 2. **It matches the design language already in place.** Every other
-///    "choose something and come back" surface in this app is a sheet — the
-///    country-code picker, the month calendar, the confirm sheets — all
-///    through `showAppSheet`.
-/// 3. **Dismissal is cheap and obvious.** A half-set filter is abandoned with
-///    a swipe, which is what people do when they change their mind mid-filter.
-///
-/// Returns nothing: the filter is applied to [appointmentFilterProvider], which
-/// the list watches.
+/// Returns nothing: the filter is applied to [appointmentFilterProvider], and
+/// the list — whose query includes the filter — re-requests.
 Future<void> showAppointmentFilterSheet(BuildContext context) {
   return showAppSheet<void>(
     context,
@@ -51,9 +40,7 @@ Future<void> showAppointmentFilterSheet(BuildContext context) {
   );
 }
 
-/// `/appointments/filter` (pushed) — the same body as the sheet, for the route
-/// and for deep links. The sheet is the surface people normally see; see
-/// [showAppointmentFilterSheet] for why.
+/// `/appointments/filter` (pushed) — the same body as the sheet.
 class AppointmentFilterScreen extends StatelessWidget {
   const AppointmentFilterScreen({super.key});
 
@@ -96,12 +83,12 @@ class AppointmentFilterScreen extends StatelessWidget {
   }
 }
 
-/// The filter controls themselves: date range, doctor, hospital, status and
-/// patient (CM-28).
+/// The filter controls themselves: date range, status (Upcoming tab only —
+/// the other tabs are fixed status sets), doctor, hospital and patient. Each
+/// maps to one §10.1 query parameter.
 ///
-/// Edits a **working copy** and commits it on "Show results", so a patient who
-/// dismisses the sheet half-way leaves the live list alone. "Clear all" is
-/// immediate on the working copy and equally committed by the same button.
+/// Edits a **working copy** and commits it on "Show results", so a patient
+/// who dismisses the sheet half-way leaves the live list alone.
 class AppointmentFilterBody extends ConsumerStatefulWidget {
   const AppointmentFilterBody({super.key, required this.onDone});
 
@@ -125,7 +112,7 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
   @override
   Widget build(BuildContext context) {
     final options = ref.watch(appointmentFilterOptionsProvider);
-    final matchCount = _matchCount();
+    final tab = ref.watch(apptTabProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,27 +129,26 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
                 })
               : null,
         ),
-        _SectionLabel('Status'),
-        Wrap(
-          spacing: 8.w,
-          runSpacing: 8.h,
-          children: [
-            for (final status in AppointmentStatusViews.all)
-              _StatusToggle(
-                status: status,
-                selected: _draft.statuses.contains(status),
-                onTap: () => setState(() {
-                  _draft = _draft.toggledStatus(status);
-                }),
-              ),
-          ],
-        ),
+        if (tab == AppointmentTab.upcoming) ...[
+          _SectionLabel('Status'),
+          Wrap(
+            spacing: 8.w,
+            runSpacing: 8.h,
+            children: [
+              for (final status in kUpcomingStatusOptions)
+                _StatusToggle(
+                  status: status,
+                  selected: _draft.statuses.contains(status),
+                  onTap: () => setState(() {
+                    _draft = _draft.toggledStatus(status);
+                  }),
+                ),
+            ],
+          ),
+        ],
         _SectionLabel('Doctor'),
         AppSelect<String?>(
-          value: _resolve(
-            _draft.doctorId,
-            options.doctors.map((doctor) => doctor.id),
-          ),
+          value: _resolve(_draft.doctorId, options.doctors.map((d) => d.id)),
           placeholder: _anyDoctor,
           options: [
             const AppSelectOption<String?>(null, _anyDoctor),
@@ -179,7 +165,7 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
         AppSelect<String?>(
           value: _resolve(
             _draft.hospitalId,
-            options.hospitals.map((hospital) => hospital.id),
+            options.hospitals.map((h) => h.id),
           ),
           placeholder: _anyHospital,
           options: [
@@ -195,33 +181,36 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
         ),
         _SectionLabel('Patient'),
         AppSelect<String?>(
-          value: _resolve(
-            _draft.patientId,
-            options.patients.map((patient) => patient.id),
-          ),
+          value: _resolve(_draft.personId, options.persons.map((p) => p.id)),
           placeholder: _anyPatient,
           options: [
             const AppSelectOption<String?>(null, _anyPatient),
-            for (final patient in options.patients)
+            for (final person in options.persons)
               AppSelectOption<String?>(
-                patient.id,
-                patient.isSelf
-                    ? '${patient.name} (you)'
-                    : '${patient.name} · ${patient.relation}',
+                person.id,
+                person.isSelf ? '${person.name} (you)' : person.forLabel,
               ),
           ],
           onChanged: (value) => setState(() {
             _draft = value == null
                 ? _draft.cleared(AppointmentFilterField.patient)
-                : _draft.copyWith(patientId: value);
+                : _draft.copyWith(personId: value);
           }),
         ),
         SizedBox(height: 18.h),
-        Text(
-          matchCount == 1
-              ? '1 appointment matches'
-              : '$matchCount appointments match',
-          style: AppText.poppins(size: 12, color: AppColors.textMuted),
+        Builder(
+          builder: (context) {
+            // What applies on this tab — a status set on Upcoming is not
+            // counted here when it is not shown (BL-APPT-022).
+            final shown = _draft.forTab(tab);
+            return Text(
+              shown.isActive
+                  ? '${shown.activeCount} '
+                        '${shown.activeCount == 1 ? 'filter' : 'filters'} set'
+                  : 'No filters set',
+              style: AppText.poppins(size: 12, color: AppColors.textMuted),
+            );
+          },
         ),
         SizedBox(height: 10.h),
         Row(
@@ -254,36 +243,16 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
     );
   }
 
-  /// The "any" rows carry a null value, which is how the dropdown offers a way
-  /// back to unfiltered — a select with no empty option is a one-way door.
+  /// The "any" rows carry a null value, which is how the dropdown offers a
+  /// way back to unfiltered — a select with no empty option is a one-way door.
   static const String _anyDoctor = 'Any doctor';
   static const String _anyHospital = 'Any hospital';
   static const String _anyPatient = 'Anyone in the family';
 
-  /// [id] only if it is still one of [available].
-  ///
-  /// The options come from the account's own appointments, so a filter set
-  /// before a booking changed could name an id that is no longer offered;
-  /// handing that to a dropdown is an assertion failure, not a filter.
+  /// [id] only if it is still one of [available]; handing an unknown id to a
+  /// dropdown is an assertion failure, not a filter.
   String? _resolve(String? id, Iterable<String> available) =>
       id != null && available.contains(id) ? id : null;
-
-  /// How many appointments the working copy would leave — shown before the
-  /// patient commits, so "Show results" never leads to a blank list by
-  /// surprise.
-  int _matchCount() {
-    final rows = ref.watch(appointmentRowsProvider);
-    if (!_draft.isActive) return rows.length;
-    return rows
-        .where(
-          (row) => _draft.matches(
-            row.appointment,
-            status: row.status,
-            resolvedHospitalId: row.hospitalId,
-          ),
-        )
-        .length;
-  }
 
   Future<void> _pickDay({required bool isStart}) async {
     final initial = isStart ? _draft.from : _draft.to;
@@ -291,8 +260,8 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
       context,
       title: isStart ? 'From date' : 'To date',
       initialDay: initial ?? DateTime.now(),
-      // Appointments span the past (Completed / Cancelled / No-show) as well as
-      // the future, so the range must reach backwards too.
+      // Appointments span the past (Completed / Canceled) as well as the
+      // future, so the range must reach backwards too.
       firstDay: AppDates.addMonths(DateTime.now(), -24),
       lastDay: AppDates.addMonths(DateTime.now(), 12),
     );
@@ -300,7 +269,6 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
     setState(() {
       final from = isStart ? picked : _draft.from;
       final to = isStart ? _draft.to : picked;
-      // Keep the range ordered whichever end was picked first.
       final ordered = from != null && to != null && to.isBefore(from)
           ? (from: to, to: from)
           : (from: from, to: to);
@@ -309,7 +277,7 @@ class _AppointmentFilterBodyState extends ConsumerState<AppointmentFilterBody> {
         to: ordered.to,
         doctorId: _draft.doctorId,
         hospitalId: _draft.hospitalId,
-        patientId: _draft.patientId,
+        personId: _draft.personId,
         statuses: _draft.statuses,
       );
     });
@@ -343,8 +311,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// The two ends of the date range, each opening the real month calendar
-/// (`showAppDatePickerSheet`) rather than a text field.
+/// The two ends of the date range, each opening the real month calendar.
 class _DateRangeField extends StatelessWidget {
   const _DateRangeField({
     required this.from,
@@ -359,7 +326,7 @@ class _DateRangeField extends StatelessWidget {
   final VoidCallback onPickFrom;
   final VoidCallback onPickTo;
 
-  /// Null when there is no range set — the control is then disabled rather
+  /// Null when there is no range set — the control is then absent rather
   /// than a no-op.
   final VoidCallback? onClear;
 
@@ -435,7 +402,7 @@ class _DayButton extends StatelessWidget {
               child: Row(
                 children: [
                   AppIcon(
-                    MedIcon.calendar,
+                    PhIcon.calendarBlank,
                     size: 16,
                     color: AppColors.textMuted,
                   ),
@@ -477,7 +444,7 @@ class _DayButton extends StatelessWidget {
   }
 }
 
-/// A selectable status chip — all five canonical statuses are offered.
+/// A selectable status chip for the Upcoming tab's sub-statuses.
 class _StatusToggle extends StatelessWidget {
   const _StatusToggle({
     required this.status,
@@ -485,16 +452,17 @@ class _StatusToggle extends StatelessWidget {
     required this.onTap,
   });
 
-  final AppointmentStatusView status;
+  final AppointmentStatus status;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final label = statusLabel(status);
     return Semantics(
       button: true,
       selected: selected,
-      label: 'Status ${status.label}',
+      label: 'Status $label',
       child: ExcludeSemantics(
         child: Material(
           color: selected ? AppColors.brand : AppColors.surface,
@@ -513,7 +481,7 @@ class _StatusToggle extends StatelessWidget {
                 ),
               ),
               child: Text(
-                status.label,
+                label,
                 style: AppText.poppins(
                   size: 12,
                   weight: AppText.medium,

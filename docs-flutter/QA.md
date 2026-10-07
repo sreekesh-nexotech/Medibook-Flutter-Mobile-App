@@ -497,7 +497,7 @@ You are a Flutter caching architect. Audit this codebase for Hive cache implemen
 
 ### CRITICAL VIOLATIONS
 1. No 3-layer cache (L1 Memory → L2 Hive → L3 Network) — data fetched directly from API on every call
-2. Cache key does not incorporate HTTP method, sorted query params, request body hash, and auth token hash (SHA256)
+2. Cache key does not incorporate HTTP method, sorted query params, request body hash, and auth scope hash (SHA256 of the signed-in account's id — not the access token, which rotates every 15 minutes)
 3. No request deduplication pool — same endpoint called twice simultaneously makes two network calls
 4. Hive write errors block the UI thread instead of failing silently and continuing
 5. No response validation pipeline before caching — invalid/partial responses written to cache
@@ -554,7 +554,12 @@ Run through each scenario manually or via integration test:
 - [ ] Hive corrupted + offline: error screen with retry button shown
 
 **Scenario 4 — Navigation Between Screens**
-- [ ] Memory hit returns in 1–5ms with no API call
+- [ ] Arriving at a screen (opening it, selecting its tab, a link, or returning from the screen on top): memory hit renders in 1–5ms, then a conditional API call re-checks it
+- [ ] 304: cached data kept, cache timestamp updated; 200: UI, Memory and Hive updated
+- [ ] A screen that stayed built under another one re-reads its data when navigated back to
+- [ ] Reads repeated within the same visit: memory hit with no API call
+- [ ] Forms, edit sheets, sign-in screens and payment screens are NOT re-read on arrival
+- [ ] Re-check failure: cached data kept, error logged
 - [ ] Memory evicted: falls through to Hive (Scenario 2 flow)
 - [ ] Both miss: falls through to API (Scenario 1 flow)
 

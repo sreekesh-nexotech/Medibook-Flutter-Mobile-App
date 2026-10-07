@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>medibook</string>
+	<string>Medibook</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -108,6 +108,17 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>tel</string>
+		<string>https</string>
+		<string>mailto</string>
 	</array>
+
+	<!-- Record uploads (image_picker / file_picker, §12): a missing usage
+	     string is an App Store rejection and a runtime crash. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Medibook uses your approximate location to show the hospitals nearest to you first.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Medibook uses the camera to photograph prescriptions and reports you add to your health records.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Medibook reads the photos you choose to attach to your health records.</string>
 </dict>
 </plist>

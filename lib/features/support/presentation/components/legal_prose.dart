@@ -3,7 +3,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
-import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 
 /// What kind of block one piece of a legal document is.
@@ -69,6 +68,7 @@ abstract final class LegalProseParser {
   LegalProseParser._();
 
   static final RegExp _whitespace = RegExp(r'\s+');
+  static final RegExp _heading = RegExp(r'^#{1,6}\s+(.+)$');
 
   /// Parses [body] into blocks. Never throws; unparseable input simply yields
   /// paragraphs.
@@ -92,15 +92,18 @@ abstract final class LegalProseParser {
         kind = ProseBlockKind.paragraph;
         continue;
       }
-      if (line.startsWith('## ')) {
+      // `# `, `## `, `### ` … all render as a section heading: the backend's
+      // `body_md` / `answer_md` open with a level-1 title (§3.2, §3.3).
+      final heading = _heading.firstMatch(line);
+      if (heading != null) {
         flush();
         kind = ProseBlockKind.heading;
-        buffer.write(line.substring(3));
+        buffer.write(heading.group(1));
         flush();
         kind = ProseBlockKind.paragraph;
         continue;
       }
-      if (line.startsWith('- ')) {
+      if (line.startsWith('- ') || line.startsWith('* ')) {
         flush();
         kind = ProseBlockKind.bullet;
         buffer.write(line.substring(2));
@@ -193,8 +196,8 @@ class _ProseBlockView extends StatelessWidget {
               block.plainText,
               style: AppText.poppins(
                 size: AppFontSize.body,
-                weight: AppText.bold,
-                color: AppColors.textStrong,
+                weight: AppText.semibold,
+                color: AppColors.textPrimary,
                 height: 1.4,
               ),
             ),
@@ -234,7 +237,7 @@ class _ProseBlockView extends StatelessWidget {
   TextStyle get _bodyStyle => AppText.poppins(
     size: AppFontSize.base,
     color: AppColors.textBody,
-    height: 1.6,
+    height: 1.5,
   );
 
   TextSpan _span(TextStyle base) => TextSpan(
@@ -251,43 +254,4 @@ class _ProseBlockView extends StatelessWidget {
         ),
     ],
   );
-}
-
-/// The "Version 2026.1 · Updated 28 Jul 2026" line above a legal document, and
-/// the note that the copy is placeholder text.
-class LegalProseMeta extends StatelessWidget {
-  const LegalProseMeta({
-    super.key,
-    required this.version,
-    required this.updated,
-  });
-
-  final String version;
-
-  /// Already formatted (`AppDates.dayMonthYear`) by the caller, because the
-  /// date format belongs to the screen, not to this row.
-  final String updated;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: AppSpacing.x4.w,
-        vertical: AppSpacing.x3.h,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: AppRadii.md,
-        border: Border.all(color: AppColors.border, width: 1.w),
-      ),
-      child: Text(
-        'Version $version · Updated $updated',
-        style: AppText.poppins(
-          size: AppFontSize.xs,
-          color: AppColors.textMuted,
-        ),
-      ),
-    );
-  }
 }

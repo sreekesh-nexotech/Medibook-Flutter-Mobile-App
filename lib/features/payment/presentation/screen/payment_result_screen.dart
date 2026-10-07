@@ -7,47 +7,40 @@ import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/payment.dart';
-import '../../../../core/mock_data/seed_providers.dart';
-import '../../../../core/mock_data/stores/payments_store.dart';
+import '../../../../core/utils/date_utils.dart';
+import '../../../../core/utils/money.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/states/app_not_found_view.dart';
-import '../../../appointments/presentation/controllers/appointments_controller.dart';
+import '../../../appointments/presentation/components/calendar_action.dart';
+import '../../../booking/application/providers/booking_draft_provider.dart';
+import '../../../booking/application/providers/booking_providers.dart';
+import '../../../booking/application/states/booking_draft.dart';
+import '../../../booking/presentation/booking_routes.dart';
+import '../../../booking/domain/entities/booked_appointment.dart';
 import '../../../booking/presentation/components/flow_screen_enter.dart';
+import '../../../booking/presentation/components/slot_labels.dart';
 import '../../../booking/presentation/components/token_actions.dart';
-import '../../../booking/presentation/controllers/booking_records_controller.dart';
-import '../../domain/counter_payment_window.dart';
-import '../controllers/payment_controller.dart';
+import '../../application/providers/payment_providers.dart';
+import '../../domain/entities/payment_record.dart';
 
-/// The payment outcome (CM-17, CM-18, CM-20). Route:
-/// `/booking/payment/result?status=success|failed|pending&appt=<id>`.
+/// The payment outcome (§9.3–§9.6). Route:
+/// `/booking/payment/result?status=success|pending|failed|late|expired&appt=<id>`.
 ///
-/// The audit found *"no failure or retry state"* anywhere in the app, so all
-/// three outcomes are first-class here and each has its own next step:
+/// | status    | What it says                                  | Actions                    |
+/// |-----------|-----------------------------------------------|----------------------------|
+/// | `success` | paid; the token card                          | view appointment · home    |
+/// | `pending` | paid; the hospital will confirm               | view appointment · home    |
+/// | `failed`  | declined / unverified; nothing charged        | **try again** · home       |
+/// | `late`    | paid after the deadline; cancelled, refunded  | book again · home          |
+/// | `expired` | the 5 minutes ran out; nothing charged        | book again · home          |
 ///
-/// | status    | What it says                        | Actions                      |
-/// |-----------|-------------------------------------|------------------------------|
-/// | `success` | paid, with the token card           | view appointment · receipt   |
-/// | `failed`  | declined, nothing charged           | **try again** · change method|
-/// | `pending` | due at the hospital desk (CM-18)    | view appointment · window    |
-///
-/// It is **pushed** on top of `/booking/payment`, so "Try again" and "Change
-/// payment method" pop back to a payment screen that still has the draft, the
-/// held slot and the fee — no state is rebuilt from a query string.
-///
-/// Router wiring:
-/// ```dart
-/// GoRoute(
-///   path: AppRoutes.bookingPaymentResult,
-///   builder: (context, state) => PaymentResultScreen(
-///     status: state.uri.queryParameters['status'] ?? '',
-///     appointmentId: state.uri.queryParameters['appt'],
-///   ),
-/// )
-/// ```
+/// It is **pushed** on top of `/booking/payment`, so "Try again" pops back
+/// to a payment screen that still has the order. The facts come from the
+/// verify response held in `paymentFlowProvider`; a deep link with no flow
+/// state says so and points at the appointment.
 class PaymentResultScreen extends ConsumerWidget {
   const PaymentResultScreen({
     super.key,
@@ -55,22 +48,20 @@ class PaymentResultScreen extends ConsumerWidget {
     this.appointmentId,
   });
 
-  /// One of [AppRoutes.paymentStatusSuccess] / `…Failed` / `…Pending`.
+  /// One of [PaymentResultStatus.all].
   final String status;
 
-  /// The appointment the attempt was for. Absent only for a declined attempt
-  /// that never got as far as creating one.
   final String? appointmentId;
+
+  /// The zone the booked times are shown in: the appointment names its
+  /// hospital's (§10); the draft's is the fallback.
+  static String? _zone(BookedAppointment appointment, BookingDraft draft) =>
+      appointment.hospitalTimezone ?? draft.hospitalTimezone;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // An unknown status is a broken link, not something to guess at.
-    const known = [
-      AppRoutes.paymentStatusSuccess,
-      AppRoutes.paymentStatusFailed,
-      AppRoutes.paymentStatusPending,
-    ];
-    if (!known.contains(status)) {
+    if (!PaymentResultStatus.all.contains(status)) {
       return AppNotFoundView(
         headline: 'Unknown payment status',
         body: 'This link does not describe a payment outcome we can show.',
@@ -80,15 +71,13 @@ class PaymentResultScreen extends ConsumerWidget {
       );
     }
 
-    final id = appointmentId;
-    final appointment = id == null
-        ? null
-        : ref.watch(appointmentByIdProvider(id));
-    final record = id == null ? null : ref.watch(bookingRecordForProvider(id));
-    final payment = id == null
-        ? null
-        : ref.watch(paymentForAppointmentProvider(id));
-    final flow = ref.watch(paymentControllerProvider);
+    final flow = ref.watch(paymentFlowProvider);
+    final draft = ref.watch(bookingDraftProvider);
+    final appointment = flow.appointment;
+    final id = appointmentId ?? appointment?.id;
+    final settled =
+        status == PaymentResultStatus.success ||
+        status == PaymentResultStatus.pendingApproval;
 
     return Scaffold(
       backgroundColor: AppColors.bgApp,
@@ -109,58 +98,66 @@ class PaymentResultScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _Headline(status: status, payment: payment),
+                      _Headline(status: status, payment: flow.payment),
                       SizedBox(height: AppSpacing.x5.h),
-                      if (status == AppRoutes.paymentStatusFailed)
+                      if (status == PaymentResultStatus.failed)
                         _FailureBody(
                           reason:
-                              payment?.failureReason ??
-                              flow.failureReason ??
-                              PaymentController.declinedReason,
-                          amountLabel: payment?.amountLabel,
+                              flow.failureMessage ??
+                              'The payment did not go through. No money has '
+                                  'left your account.',
+                          amountPaise: flow.order?.amountPaise,
                         )
-                      else if (record != null && appointment != null) ...[
+                      else if (settled && appointment != null) ...[
                         TokenActionsCard(
-                          token: record.token,
-                          bookingRef: record.bookingRef,
-                          scheduledAt: record.scheduledAt,
-                          doctorName: ref
-                              .watch(doctorByIdProvider(appointment.doctorId))
-                              .name,
-                          hospitalName: record.hospitalId == null
-                              ? ref
-                                    .watch(
-                                      doctorByIdProvider(appointment.doctorId),
-                                    )
-                                    .hospital
-                              : ref
-                                    .watch(
-                                      hospitalByIdProvider(record.hospitalId!),
-                                    )
-                                    .name,
-                          onViewQueue: () => context.push(
-                            AppRoutes.queuePath(appointment.doctorId),
+                          token:
+                              appointment.tokenLabel ??
+                              'Assigned by the hospital',
+                          bookingRef: appointment.bookingRef,
+                          dateLabel: SlotLabels.dayShort(
+                            appointment.scheduledDate,
+                            timezone: _zone(appointment, draft),
+                          ),
+                          whenLabel:
+                              '${SlotLabels.dayLong(appointment.scheduledDate, timezone: _zone(appointment, draft))} · '
+                              '${SlotLabels.time(appointment.scheduledStartAt, timezone: _zone(appointment, draft))}',
+                          doctorName: appointment.doctorName,
+                          hospitalName: appointment.hospitalName,
+                          patientName: draft.person?.fullName,
+                          calendarBusy: watchCalendarBusy(ref, appointment.id),
+                          onAddToCalendar: () => addAppointmentToCalendar(
+                            context,
+                            ref,
+                            appointment.id,
                           ),
                         ),
                         SizedBox(height: 14.h),
-                        if (status == AppRoutes.paymentStatusPending)
-                          _CounterWindowCard(
-                            scheduledAt: record.scheduledAt,
-                            amountLabel: record.amount.format(),
-                          )
-                        else
-                          _PaidCard(payment: payment),
-                      ] else
+                        _PaidCard(
+                          payment: flow.payment,
+                          appointment: appointment,
+                        ),
+                      ] else if (status == PaymentResultStatus.late &&
+                          appointment != null)
+                        _LateCard(
+                          appointment: appointment,
+                          payment: flow.payment,
+                        )
+                      else if (status == PaymentResultStatus.expired &&
+                          appointment != null)
+                        _ExpiredCard(
+                          bookingRef: appointment.bookingRef,
+                          doctorName: appointment.doctorName,
+                          whenLabel:
+                              '${SlotLabels.dayLong(appointment.scheduledDate, timezone: _zone(appointment, draft))} · '
+                              '${SlotLabels.time(appointment.scheduledStartAt, timezone: _zone(appointment, draft))}',
+                        )
+                      else
                         _MissingRecordNotice(status: status),
                     ],
                   ),
                 ),
               ),
-              _Footer(
-                status: status,
-                appointmentId: id,
-                hasReceipt: payment?.hasReceipt ?? false,
-              ),
+              _Footer(status: status, appointmentId: id),
             ],
           ),
         ),
@@ -185,29 +182,44 @@ class _Headline extends StatelessWidget {
       String title,
       String body,
     ) = switch (status) {
-      AppRoutes.paymentStatusSuccess => (
+      PaymentResultStatus.success => (
         AppColors.successText,
         AppColors.successSoft,
-        MedIcon.bag,
+        PhIcon.checkBold,
         'Payment successful',
-        'Your appointment is confirmed and paid. '
-            '${payment?.receiptNumber == null ? '' : 'Receipt '
-                      '${payment!.receiptNumber}.'}',
+        'Your appointment is confirmed and paid.',
       ),
-      AppRoutes.paymentStatusFailed => (
+      PaymentResultStatus.pendingApproval => (
+        AppColors.successText,
+        AppColors.successSoft,
+        PhIcon.checkBold,
+        'Paid — awaiting hospital confirmation',
+        'This hospital confirms online bookings by hand. You will be '
+            'notified once it is approved.',
+      ),
+      PaymentResultStatus.late => (
         AppColors.dangerText,
         AppColors.dangerSoft,
-        MedIcon.closeCircle,
-        'Payment failed',
-        'Nothing has been charged. Your slot is still held for a few '
-            'more minutes.',
+        PhIcon.clock,
+        'Payment received too late',
+        'The money arrived after the 5-minute window, so the booking was '
+            'cancelled and a full refund has been initiated.',
       ),
-      _ => (
+      PaymentResultStatus.expired => (
         AppColors.textStrong,
         AppColors.warningSoft,
-        MedIcon.clock,
-        'Booked — pay at the hospital',
-        'The desk collects the fee when you arrive.',
+        PhIcon.clock,
+        'The payment window closed',
+        'Unpaid bookings are released after 5 minutes. Nothing has been '
+            'charged.',
+      ),
+      _ => (
+        AppColors.dangerText,
+        AppColors.dangerSoft,
+        PhIcon.xCircle,
+        'Payment failed',
+        'Nothing has been charged. Your slot is still held until the timer '
+            'runs out.',
       ),
     };
 
@@ -238,7 +250,7 @@ class _Headline extends StatelessWidget {
               ),
               SizedBox(height: 4.h),
               Text(
-                body.trim(),
+                body,
                 style: AppText.poppins(
                   size: AppFontSize.sm,
                   color: AppColors.textBody,
@@ -253,13 +265,12 @@ class _Headline extends StatelessWidget {
   }
 }
 
-/// What a declined attempt says. The reason comes from the ledger entry, so
-/// the screen and the payment history cannot disagree.
+/// What a declined attempt says, from the gateway's or the backend's words.
 class _FailureBody extends StatelessWidget {
-  const _FailureBody({required this.reason, this.amountLabel});
+  const _FailureBody({required this.reason, this.amountPaise});
 
   final String reason;
-  final String? amountLabel;
+  final int? amountPaise;
 
   @override
   Widget build(BuildContext context) {
@@ -286,11 +297,11 @@ class _FailureBody extends StatelessWidget {
               height: 1.5,
             ),
           ),
-          if (amountLabel != null) ...[
+          if (amountPaise != null) ...[
             SizedBox(height: AppSpacing.x3.h),
             Text(
-              'Attempted: $amountLabel. This attempt is in your payment '
-              'history so support can look it up.',
+              'Attempted: ${Money.inr(amountPaise!)}. Trying again starts a '
+              'new payment for the same booking; the deadline does not move.',
               style: AppText.poppins(
                 size: AppFontSize.xs,
                 color: AppColors.textMuted,
@@ -304,82 +315,41 @@ class _FailureBody extends StatelessWidget {
   }
 }
 
-/// The Pay-at-Hospital counter-confirmation window (CM-18).
-class _CounterWindowCard extends StatelessWidget {
-  const _CounterWindowCard({
-    required this.scheduledAt,
-    required this.amountLabel,
-  });
-
-  final DateTime scheduledAt;
-  final String amountLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: EdgeInsets.all(18.w),
-      color: AppColors.warningSoft,
-      shadow: AppShadowToken.none,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Confirm at reception',
-            style: AppText.poppins(
-              size: AppFontSize.base,
-              weight: AppText.semibold,
-              color: AppColors.textStrong,
-            ),
-          ),
-          SizedBox(height: AppSpacing.x2.h),
-          Text(
-            CounterPaymentWindow.noticeFor(scheduledAt),
-            style: AppText.poppins(
-              size: AppFontSize.base,
-              color: AppColors.textPrimary,
-              height: 1.5,
-            ),
-          ),
-          SizedBox(height: AppSpacing.x2.h),
-          Text(
-            'Amount due at the desk: $amountLabel',
-            style: AppText.poppins(
-              size: AppFontSize.sm,
-              weight: AppText.semibold,
-              color: AppColors.textStrong,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The settled-payment facts: method, amount, receipt series, GSTIN.
+/// The settled-payment facts from the verify response: amount, method,
+/// captured time, appointment status.
 class _PaidCard extends StatelessWidget {
-  const _PaidCard({required this.payment});
+  const _PaidCard({required this.payment, required this.appointment});
 
   final PaymentRecord? payment;
+  final BookedAppointment appointment;
 
   @override
   Widget build(BuildContext context) {
-    final payment = this.payment;
-    if (payment == null) return const SizedBox.shrink();
+    final p = payment;
+    final rows = <({String label, String value})>[
+      (
+        label: 'Paid',
+        value: Money.inr(p?.amountPaise ?? appointment.totalPaise),
+      ),
+      if (p?.methodLabel != null) (label: 'Method', value: p!.methodLabel!),
+      if (p?.capturedAt != null)
+        (label: 'On', value: AppDates.dayAndTime(p!.capturedAt!.toLocal())),
+      (
+        label: 'Status',
+        value: switch (appointment.status) {
+          AppointmentStatus.pendingApproval => 'Awaiting confirmation',
+          AppointmentStatus.scheduled => 'Confirmed',
+          final s => s.wire.replaceAll('_', ' '),
+        },
+      ),
+    ];
     return AppCard(
       padding: EdgeInsets.all(18.w),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final row in <({String label, String value})>[
-            (label: 'Paid', value: payment.amountLabel),
-            (label: 'Method', value: payment.method.label),
-            (label: 'Status', value: payment.status.label),
-            (label: 'Receipt', value: payment.receiptNumber),
-            if (payment.paidAtLabel != null)
-              (label: 'On', value: payment.paidAtLabel!),
-          ])
+          for (final row in rows)
             Padding(
               padding: EdgeInsets.symmetric(vertical: 5.h),
               child: Row(
@@ -417,8 +387,82 @@ class _PaidCard extends StatelessWidget {
   }
 }
 
-/// Shown when the route names an outcome but this session holds no booking for
-/// it — a deep link, or a restart. It does not invent a confirmation.
+/// A late payment: cancelled by the system, refund on its way (§9.3).
+class _LateCard extends StatelessWidget {
+  const _LateCard({required this.appointment, required this.payment});
+
+  final BookedAppointment appointment;
+  final PaymentRecord? payment;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: EdgeInsets.all(18.w),
+      color: AppColors.warningSoft,
+      shadow: AppShadowToken.none,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Refund initiated',
+            style: AppText.poppins(
+              size: AppFontSize.base,
+              weight: AppText.semibold,
+              color: AppColors.textStrong,
+            ),
+          ),
+          SizedBox(height: AppSpacing.x2.h),
+          Text(
+            '${Money.inr(payment?.amountPaise ?? appointment.totalPaise)} '
+            'will be returned to the account you paid from. Booking '
+            '${appointment.bookingRef} is cancelled'
+            '${appointment.cancellationReason == null ? '' : ' (${appointment.cancellationReason!.replaceAll('_', ' ')})'}.',
+            style: AppText.poppins(
+              size: AppFontSize.base,
+              color: AppColors.textPrimary,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The lapsed booking, by name (BL-PAY-003): what was released and that
+/// nothing was charged.
+class _ExpiredCard extends StatelessWidget {
+  const _ExpiredCard({
+    required this.bookingRef,
+    required this.doctorName,
+    required this.whenLabel,
+  });
+
+  final String bookingRef;
+  final String doctorName;
+  final String whenLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: EdgeInsets.all(18.w),
+      child: Text(
+        'Booking $bookingRef with $doctorName ($whenLabel) was not paid in '
+        'time, so it has been released and the slot is free again. Nothing '
+        'was charged. Book again to choose a time.',
+        style: AppText.poppins(
+          size: AppFontSize.base,
+          color: AppColors.textBody,
+          height: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the route names an outcome but this session holds no booking
+/// for it — a deep link, or a restart. It does not invent a confirmation.
 class _MissingRecordNotice extends StatelessWidget {
   const _MissingRecordNotice({required this.status});
 
@@ -429,9 +473,10 @@ class _MissingRecordNotice extends StatelessWidget {
     return AppCard(
       padding: EdgeInsets.all(18.w),
       child: Text(
-        status == AppRoutes.paymentStatusSuccess
-            ? 'This payment was made in an earlier session, so its token card '
-                  'is not held here. Open the appointment to see its '
+        status == PaymentResultStatus.success ||
+                status == PaymentResultStatus.pendingApproval
+            ? 'This payment was made in an earlier session, so its details '
+                  'are not held here. Open the appointment to see its '
                   'reference, token and receipt.'
             : 'There is no booking attached to this outcome in this session.',
         style: AppText.poppins(
@@ -444,23 +489,21 @@ class _MissingRecordNotice extends StatelessWidget {
   }
 }
 
-/// The outcome's actions. Retry and change-method pop back to the payment
-/// screen rather than pushing a second copy of it.
-class _Footer extends StatelessWidget {
-  const _Footer({
-    required this.status,
-    required this.appointmentId,
-    required this.hasReceipt,
-  });
+/// The outcome's actions. Retry pops back to the payment screen rather than
+/// pushing a second copy of it.
+class _Footer extends ConsumerWidget {
+  const _Footer({required this.status, required this.appointmentId});
 
   final String status;
   final String? appointmentId;
-  final bool hasReceipt;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final id = appointmentId;
-    final failed = status == AppRoutes.paymentStatusFailed;
+    final failed = status == PaymentResultStatus.failed;
+    final over =
+        status == PaymentResultStatus.late ||
+        status == PaymentResultStatus.expired;
 
     return Container(
       width: double.infinity,
@@ -489,21 +532,38 @@ class _Footer extends StatelessWidget {
                   : context.go(AppRoutes.bookingPayment),
             ),
             SizedBox(height: 10.h),
+          ] else if (over) ...[
             AppButton(
-              label: 'Use another method',
-              variant: AppButtonVariant.soft,
+              label: 'Book again',
               fullWidth: true,
-              onPressed: () => context.canPop()
-                  ? context.pop()
-                  : context.go(AppRoutes.bookingPayment),
+              // Back to the same doctor to pick a new time: the department,
+              // hospital, doctor, patient and notes are kept (BL-PAY-028).
+              onPressed: () {
+                ref.read(bookingSubmitProvider.notifier).reset();
+                final lapsed = ref.read(paymentFlowProvider).appointment;
+                final draft = ref.read(bookingDraftProvider);
+                if (draft.doctor == null && lapsed != null) {
+                  // Paid from Appointments, not the booking flow: there is
+                  // no draft to keep, so start again from the same doctor.
+                  context.go(
+                    BookingRoutes.booking(
+                      step: 2,
+                      doctor: lapsed.doctorId,
+                      hospital: lapsed.hospitalId,
+                    ),
+                  );
+                  return;
+                }
+                ref.read(bookingDraftProvider.notifier)
+                  ..clearSlot()
+                  ..goToStep(2);
+                // The booking screen may still be under this one (reused,
+                // no new set-up) or be built afresh (resume keeps the
+                // draft); either way it opens on Doctor & time.
+                context.go(BookingRoutes.booking(step: 2, resume: true));
+              },
             ),
             SizedBox(height: 10.h),
-            AppButton(
-              label: 'Back to Home',
-              variant: AppButtonVariant.ghost,
-              fullWidth: true,
-              onPressed: () => context.go(AppRoutes.home),
-            ),
           ] else ...[
             AppButton(
               label: 'View appointment',
@@ -517,23 +577,26 @@ class _Footer extends StatelessWidget {
                   ? null
                   : () => context.go(AppRoutes.appointmentDetailPath(id)),
             ),
-            if (hasReceipt && id != null) ...[
-              SizedBox(height: 10.h),
+            SizedBox(height: 10.h),
+            // The booking is confirmed (or awaiting the hospital): its token
+            // card is one tap away, and Back returns here.
+            if (id != null) ...[
               AppButton(
-                label: 'View receipt',
+                label: 'View token',
                 variant: AppButtonVariant.soft,
                 fullWidth: true,
-                onPressed: () => context.push(AppRoutes.receiptPath(id)),
+                semanticLabel: 'View the token card for this booking',
+                onPressed: () => context.push(AppRoutes.successPath(id)),
               ),
+              SizedBox(height: 10.h),
             ],
-            SizedBox(height: 10.h),
-            AppButton(
-              label: 'Back to Home',
-              variant: AppButtonVariant.ghost,
-              fullWidth: true,
-              onPressed: () => context.go(AppRoutes.home),
-            ),
           ],
+          AppButton(
+            label: 'Back to Home',
+            variant: AppButtonVariant.ghost,
+            fullWidth: true,
+            onPressed: () => context.go(AppRoutes.home),
+          ),
         ],
       ),
     );

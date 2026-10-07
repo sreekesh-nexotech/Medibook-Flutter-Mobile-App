@@ -38,6 +38,7 @@ abstract final class AppDates {
 
   static final DateFormat _dow = DateFormat('EEE'); // Mon, Tue…
   static final DateFormat _dayMonthYear = DateFormat('d MMM yyyy');
+  static final DateFormat _dayMonthLongYear = DateFormat('d MMMM yyyy');
   static final DateFormat _dayMonth = DateFormat('d MMM');
   static final DateFormat _time = DateFormat('h:mm a');
   static final DateFormat _monthYear = DateFormat('MMMM yyyy');
@@ -80,6 +81,10 @@ abstract final class AppDates {
 
   /// "12 Aug 2026".
   static String dayMonthYear(DateTime when) => _dayMonthYear.format(when);
+
+  /// "12 September 2026" — the legal documents' "Last updated" line.
+  static String dayMonthLongYear(DateTime when) =>
+      _dayMonthLongYear.format(when);
 
   /// "12 Aug" — for dense rows where the year is implied.
   static String dayMonth(DateTime when) => _dayMonth.format(when);
@@ -279,6 +284,41 @@ abstract final class AppDates {
       parsedTime?.minute ?? base.minute,
     );
   }
+}
+
+/// Hospital time zones → UTC offsets (`FLUTTER_API_INTEGRATION.md` §1.11).
+///
+/// Every instant on the wire is UTC and is shown in the **hospital's** zone:
+/// the server names it on the appointment's `hospital.timezone`, on the slot
+/// grid's `timezone` and on hospital detail. No IANA database ships in this
+/// build, so this resolves the fixed-offset (no daylight saving) zones the
+/// platform serves; an unlisted zone resolves to null and callers fall back
+/// to the device's zone.
+abstract final class HospitalZones {
+  HospitalZones._();
+
+  /// The zone assumed when a payload does not name one.
+  static const String defaultTimezone = 'Asia/Kolkata';
+
+  static const Map<String, Duration> _offsets = {
+    'Asia/Kolkata': Duration(hours: 5, minutes: 30),
+    'Asia/Calcutta': Duration(hours: 5, minutes: 30),
+    'Asia/Dubai': Duration(hours: 4),
+    'Asia/Singapore': Duration(hours: 8),
+    'Asia/Kathmandu': Duration(hours: 5, minutes: 45),
+    'Asia/Colombo': Duration(hours: 5, minutes: 30),
+    'Asia/Dhaka': Duration(hours: 6),
+    'UTC': Duration.zero,
+    'Etc/UTC': Duration.zero,
+  };
+
+  /// The UTC offset of [timezone] ([defaultTimezone] when null), or null when
+  /// the zone is not one this build can shift exactly.
+  static Duration? offsetOf(String? timezone) =>
+      _offsets[timezone ?? defaultTimezone];
+
+  /// True when [timezone] can be rendered exactly.
+  static bool isSupported(String? timezone) => offsetOf(timezone) != null;
 }
 
 /// Calendar arithmetic that does not belong in [AppDates]' public surface.

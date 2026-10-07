@@ -36,7 +36,7 @@ class ProfilePickerField extends StatelessWidget {
     required this.value,
     this.placeholder,
     this.onTap,
-    this.iconName = MedIcon.calendar,
+    this.iconName = PhIcon.calendarBlank,
     this.errorText,
     this.helperText,
     this.enabled = true,
@@ -146,7 +146,7 @@ class ProfilePickerField extends StatelessWidget {
               errorText!,
               style: AppText.poppins(
                 size: AppFontSize.xs,
-                color: AppColors.danger,
+                color: AppColors.dangerText,
               ),
             ),
           )

@@ -39,8 +39,9 @@ class AppNotFoundView extends StatelessWidget {
     this.body,
     this.attemptedPath,
     this.onGoHome,
+    this.homeLabel,
     this.onGoBack,
-    this.iconName = MedIcon.search,
+    this.iconName = PhIcon.magnifyingGlass,
   });
 
   /// Overrides "Page not found".
@@ -54,6 +55,10 @@ class AppNotFoundView extends StatelessWidget {
 
   /// Primary action. Every not-found screen should offer a way home.
   final VoidCallback? onGoHome;
+
+  /// What [onGoHome]'s button says, when it leads somewhere other than Home
+  /// ("Go to Records"). Defaults to "Go to Home".
+  final String? homeLabel;
 
   /// Secondary action, when there is a stack to pop.
   final VoidCallback? onGoBack;
@@ -116,7 +121,7 @@ class AppNotFoundView extends StatelessWidget {
                 if (onGoHome != null) ...[
                   SizedBox(height: AppSpacing.x6.h),
                   AppButton(
-                    label: strings.goHome,
+                    label: homeLabel ?? strings.goHome,
                     fullWidth: true,
                     onPressed: onGoHome,
                   ),

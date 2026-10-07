@@ -3,48 +3,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../app/config/constants.dart';
 import '../../../../app/config/feature_flags.dart';
 import '../../../../app/router/app_routes.dart';
+import '../../../../app/router/guards/pending_link.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/error/error_view.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_countdown.dart';
 import '../../../../core/widgets/app_inner_header.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
 import '../components/otp_box.dart';
 import '../components/screen_fade_rise.dart';
-import '../controllers/auth_flow_draft.dart';
-import '../controllers/verify_controller.dart';
-import '../../application/providers/auth_provider.dart';
-import '../controllers/verify_request.dart';
+import '../../application/providers/verify_controller.dart';
+import '../../application/providers/verify_request.dart';
 
-/// Verify Code (`/verify`) — the one code-entry screen, now serving three
-/// flows (CM-03 sign-up, CM-04 mobile sign-in, CM-06 password reset).
+/// Verify Code (`/verify`) — the one code-entry screen, serving sign-up
+/// (§4.2), mobile sign-in (§4.4) and password reset (§4.7 step 2).
 ///
-/// ## The parameters
-///
-/// The audit found *"a code-entry screen exists, but only inside the email
-/// password-reset flow. Sign-up never reaches it, and no screen asks for a
-/// mobile number"*. Cloning the screen per flow would have been three copies
-/// of the same four boxes, so instead every caller encodes a [VerifyRequest]
-/// into the `/verify` query and this screen reads everything from it:
-///
-/// ```dart
-/// context.go(VerifyRequest(
-///   purpose: VerifyPurpose.signup,      // signup | mobileLogin | passwordReset
-///   channel: ResetChannel.sms,          // sms | email
-///   destination: '+919845658525',       // echoed in the copy
-/// ).path);                              // → /verify?purpose=signup&channel=sms&to=…
-/// ```
-///
-/// [VerifyPurpose] decides the header, the blurb, the button label, where the
-/// back arrow goes and what a correct code *does*; [ResetChannel] decides
-/// whether the copy says "mobile number" or "email address". A `/verify` link
-/// with no query at all still resolves to the email reset it shipped as.
-///
-/// The route table is untouched: one `/verify` entry, no new rows to wire.
+/// Every caller encodes a [VerifyRequest] — purpose, destination and the
+/// backend `challenge_id` from the "start" call — into the `/verify` query,
+/// and this screen reads everything from it. The number of boxes comes from
+/// the challenge's `code_length`, not a constant. A resend mints a new
+/// challenge, so the request is replaced in place (the route is updated too,
+/// so a rebuild keeps the live id).
 class VerifyCodeScreen extends ConsumerStatefulWidget {
   const VerifyCodeScreen({super.key});
 
@@ -53,22 +35,40 @@ class VerifyCodeScreen extends ConsumerStatefulWidget {
 }
 
 class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
-  static const int _length = 4;
-
-  final List<TextEditingController> _digits = List.generate(
-    _length,
-    (_) => TextEditingController(),
-  );
-  final List<FocusNode> _nodes = List.generate(_length, (_) => FocusNode());
+  List<TextEditingController> _digits = const [];
+  List<FocusNode> _nodes = const [];
+  VerifyRequest? _request;
 
   VerifyFormController get _form =>
       ref.read(verifyFormControllerProvider.notifier);
 
-  /// The request this screen was opened with, decoded from the route query.
-  VerifyRequest get _request =>
-      VerifyRequest.fromQuery(GoRouterState.of(context).uri.queryParameters);
+  /// The request this screen was opened with, decoded once from the route
+  /// query and then replaced by [_resend] when a new challenge is minted.
+  VerifyRequest get _current => _request ??= VerifyRequest.fromQuery(
+    GoRouterState.of(context).uri.queryParameters,
+  );
 
   String get _code => _digits.map((c) => c.text).join();
+
+  int get _length => _current.codeLength;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _ensureBoxes();
+  }
+
+  void _ensureBoxes() {
+    if (_digits.length == _length) return;
+    for (final controller in _digits) {
+      controller.dispose();
+    }
+    for (final node in _nodes) {
+      node.dispose();
+    }
+    _digits = List.generate(_length, (_) => TextEditingController());
+    _nodes = List.generate(_length, (_) => FocusNode());
+  }
 
   @override
   void dispose() {
@@ -81,14 +81,9 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
     super.dispose();
   }
 
-  /// What the code was sent to, for the copy. Falls back to the demo address
-  /// only while demo mode is on, so with the flag off an empty destination
-  /// simply renders as "your mobile number" / "your email address".
+  /// What the code was sent to, for the copy.
   String _destinationLabel(VerifyRequest request) {
     if (request.destination.isNotEmpty) return request.destination;
-    if (FeatureFlags.demoMode && request.channel == ResetChannel.email) {
-      return AppConstants.demoEmail;
-    }
     return 'your ${request.channelLabel}';
   }
 
@@ -119,7 +114,7 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
   }
 
   Future<void> _verify() async {
-    final request = _request;
+    final request = _current;
     for (final node in _nodes) {
       if (node.hasFocus) node.unfocus();
     }
@@ -138,49 +133,49 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
                   ? 'Welcome to Medibook!'
                   : 'Welcome to Medibook, $first!',
             );
-        context.go(AppRoutes.home);
+        context.go(ref.read(pendingLinkProvider).take() ?? AppRoutes.home);
       case VerifyPurpose.mobileLogin:
-        context.go(AppRoutes.home);
+        // A link opened before signing in, else Home (CL NAV-005).
+        context.go(ref.read(pendingLinkProvider).take() ?? AppRoutes.home);
       case VerifyPurpose.passwordReset:
         context.go(AppRoutes.reset);
-      case VerifyPurpose.phoneChange:
-        // CM-47. The only purpose that runs on an existing session, so the
-        // number is committed here and the session is left alone — see
-        // `VerifyRequest.signsIn`.
-        final user = ref.read(authProvider).user;
-        if (user != null) {
-          ref
-              .read(authProvider.notifier)
-              .updateUser(
-                user.copyWith(phone: request.destination, phoneVerified: true),
-              );
-        }
-        ref
-            .read(toastControllerProvider.notifier)
-            .show('Mobile number updated');
-        context.go(AppRoutes.profileEdit);
     }
   }
 
+  /// When "Resend" unlocks (`resend_after_seconds` after the code was
+  /// sent). Asking sooner is refused by the server (BL-AUTH-020).
+  late DateTime _resendAt = DateTime.now().add(
+    Duration(seconds: _current.resendAfterSeconds),
+  );
+
+  bool get _canResend => !DateTime.now().isBefore(_resendAt);
+
   Future<void> _resend() async {
-    final request = _request;
-    if (FeatureFlags.demoMode) {
-      // Nothing is sent in demo mode, so saying "code re-sent" would be a
-      // success message for something that did not happen. The code itself is
-      // already stated on screen behind the same flag.
-      showStubbedToast(context, ref, 'Sending a code');
-      return;
-    }
-    final sent = await _form.resend(request);
-    if (!sent || !mounted) return;
+    if (!_canResend) return;
+    final challenge = await _form.resend(_current);
+    if (challenge == null || !mounted) return;
+    setState(() {
+      _request = _current.withChallenge(
+        challenge.challengeId,
+        codeLength: challenge.codeLength,
+        resendAfterSeconds: challenge.resendAfterSeconds,
+        expiresAt: challenge.expiresAt,
+      );
+      _resendAt = DateTime.now().add(
+        Duration(seconds: challenge.resendAfterSeconds),
+      );
+      _ensureBoxes();
+    });
+    // Keep the route in step so a rebuild reads the live challenge.
+    context.replace(_current.path);
     ref
         .read(toastControllerProvider.notifier)
-        .show('Code re-sent to your ${request.channelLabel}');
+        .show('Code re-sent to your ${_current.channelLabel}');
   }
 
   @override
   Widget build(BuildContext context) {
-    final request = _request;
+    final request = _current;
     final form = ref.watch(verifyFormControllerProvider);
     final codeError = form.errorOf(VerifyFields.code);
     final failure = form.failure;
@@ -258,7 +253,28 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
                             textAlign: TextAlign.center,
                             style: AppText.poppins(
                               size: AppFontSize.xs,
-                              color: AppColors.danger,
+                              color: AppColors.dangerText,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 6.h),
+                      ],
+                      if (request.expiresAt case final expiresAt?) ...[
+                        AppCountdown(
+                          // A new code restarts it.
+                          key: ValueKey(request.challengeId),
+                          deadline: expiresAt,
+                          builder: (context, remaining, label) => Text(
+                            remaining > Duration.zero
+                                ? 'Code expires in $label'
+                                : 'This code has expired. Tap Resend Code '
+                                      'for a new one.',
+                            textAlign: TextAlign.center,
+                            style: AppText.poppins(
+                              size: AppFontSize.xs,
+                              color: remaining > Duration.zero
+                                  ? AppColors.textMuted
+                                  : AppColors.danger,
                             ),
                           ),
                         ),
@@ -266,7 +282,7 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
                       ],
                       if (FeatureFlags.demoMode)
                         Text(
-                          'Demo code: ${AppConstants.demoOtpCode}',
+                          'Demo code: ${DemoCredentials.otpCode}',
                           textAlign: TextAlign.center,
                           style: AppText.poppins(
                             size: AppFontSize.xs,
@@ -275,7 +291,7 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
                         ),
                       SizedBox(height: 22.h),
                       AppButton(
-                        label: _confirmLabel(request),
+                        label: request.confirmLabel,
                         fullWidth: true,
                         loading: form.isBusy,
                         onPressed: _verify,
@@ -291,27 +307,49 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
                               color: AppColors.textBody,
                             ),
                           ),
-                          Semantics(
-                            button: true,
-                            label: 'Resend code',
-                            child: ExcludeSemantics(
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: form.isBusy ? null : _resend,
-                                child: Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8.h),
-                                  child: Text(
-                                    'Resend Code',
-                                    style: AppText.poppins(
-                                      size: AppFontSize.base,
-                                      weight: AppText.semibold,
-                                      color: AppColors.textLink,
+                          if (!_canResend)
+                            // Not tappable until the server will take it.
+                            AppCountdown(
+                              key: ValueKey(_resendAt),
+                              deadline: _resendAt,
+                              onExpired: () {
+                                if (mounted) setState(() {});
+                              },
+                              builder: (context, remaining, label) => Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8.h),
+                                child: Text(
+                                  'Resend in $label',
+                                  style: AppText.poppins(
+                                    size: AppFontSize.base,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            Semantics(
+                              button: true,
+                              label: 'Resend code',
+                              child: ExcludeSemantics(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: form.isBusy ? null : _resend,
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 8.h,
+                                    ),
+                                    child: Text(
+                                      'Resend Code',
+                                      style: AppText.poppins(
+                                        size: AppFontSize.base,
+                                        weight: AppText.semibold,
+                                        color: AppColors.textLink,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                     ],
@@ -323,19 +361,5 @@ class _VerifyCodeScreenState extends ConsumerState<VerifyCodeScreen> {
         ),
       ),
     );
-  }
-
-  /// The submit label.
-  ///
-  /// A real password reset has no verify endpoint of its own — the code is
-  /// submitted with the new password on `/reset` — so outside demo mode this
-  /// step only checks the code is well-formed and the button says "Continue"
-  /// rather than claiming the code was verified.
-  String _confirmLabel(VerifyRequest request) {
-    if (request.purpose == VerifyPurpose.passwordReset &&
-        !FeatureFlags.demoMode) {
-      return 'Continue';
-    }
-    return request.confirmLabel;
   }
 }

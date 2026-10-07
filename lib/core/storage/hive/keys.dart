@@ -17,20 +17,37 @@ abstract final class HiveKeys {
   /// Id of the signed-in user. Tokens live in `SecureStore`, never here.
   static const String userId = 'user_id';
   static const String userDisplayName = 'user_display_name';
+  static const String userLastName = 'user_last_name';
   static const String userPhone = 'user_phone';
+  static const String userHasPassword = 'user_has_password';
+  static const String userVersion = 'user_version';
+
+  /// The `person_self.id` from sign-up / the persons list — the `person_id`
+  /// for "book for myself" (§4.2).
+  static const String selfPersonId = 'self_person_id';
 
   /// Epoch millis of the last successful sign-in.
   static const String lastLoginAt = 'last_login_at';
 
-  /// Failed sign-in attempt counter and lockout expiry (CM-05). Persisted so
-  /// force-quitting the app does not reset a lockout.
-  static const String failedLoginAttempts = 'failed_login_attempts';
+  /// The lockout deadline the **server** announced (`AUTH_LOCKED_OUT`,
+  /// `meta.locked_until`). Persisted so force-quitting the app does not hide
+  /// it; the server remains the authority.
   static const String lockedUntil = 'locked_until';
 
-  /// Whether onboarding has been completed on this device.
-  static const String onboardingComplete = 'onboarding_complete';
+  /// Which account [lockedUntil] belongs to (an email or E.164 number). The
+  /// server locks one account, not the phone (BL-AUTH-035).
+  static const String lockedIdentifier = 'locked_identifier';
 
   // ---- `settings` box ----
+
+  /// Whether the first-run onboarding (slides + consent) has been completed
+  /// on this device. Lives in `settings`, not `auth`, because it is a
+  /// per-device fact: signing out must not replay the intro.
+  static const String onboardingComplete = 'onboarding_complete';
+
+  /// The optional "hospital offers and health camp updates" opt-in made on the
+  /// onboarding consent screen. Changeable later in Profile.
+  static const String offersOptIn = 'offers_opt_in';
 
   static const String locale = 'locale';
   static const String themeMode = 'theme_mode';
@@ -67,7 +84,7 @@ abstract final class HiveKeys {
 /// ```text
 /// cacheKey = SHA256(
 ///   endpoint + HTTP_method + sorted_query_params +
-///   request_body_hash + auth_token_hash
+///   request_body_hash + auth_scope_hash
 /// )
 /// ```
 ///
@@ -75,10 +92,12 @@ abstract final class HiveKeys {
 /// * **Order-independence.** Query parameters are sorted before hashing, so
 ///   `?city=Kochi&page=1` and `?page=1&city=Kochi` share one entry instead of
 ///   thrashing two.
-/// * **Tenant isolation.** The auth token is hashed into the key, so one
-///   patient's cached records can never be served to another account on a
-///   shared device. The token is *hashed*, never stored — the key is not
-///   reversible into a credential.
+/// * **Tenant isolation.** The signed-in account is hashed into the key, so
+///   one patient's cached records can never be served to another account on
+///   a shared device. The scope is the account's id, **not** the access
+///   token: the token is replaced every 15 minutes, and a token-scoped key
+///   made everything saved before the last refresh unreachable offline
+///   (DEF-065). The id is *hashed*, never stored in the key.
 ///
 /// The hash function is injectable ([hash]) so tests can pin a deterministic
 /// digest. The default is real SHA-256 from `package:crypto`, which is a
@@ -97,13 +116,14 @@ class CacheKeyBuilder {
 
   /// Key for an [ApiRequest].
   ///
-  /// Pass the raw [authToken]; it is hashed here and never retained.
-  String forRequest(ApiRequest request, {String? authToken}) => build(
+  /// [scope] is the signed-in account's id (null when signed out); it is
+  /// hashed here and never retained.
+  String forRequest(ApiRequest request, {String? scope}) => build(
     endpoint: request.path,
     method: request.method.value,
     query: request.normalisedQuery,
     body: request.body,
-    authToken: authToken,
+    scope: scope,
   );
 
   /// Key for the five components of the documented strategy.
@@ -112,20 +132,18 @@ class CacheKeyBuilder {
     String method = 'GET',
     Map<String, String> query = const <String, String>{},
     Object? body,
-    String? authToken,
+    String? scope,
   }) {
     final sortedQuery = sortQuery(query);
     final bodyHash = body == null ? '' : hash(_canonicalJson(body));
-    final tokenHash = authToken == null || authToken.isEmpty
-        ? 'anon'
-        : hash(authToken);
+    final scopeHash = scope == null || scope.isEmpty ? 'anon' : hash(scope);
 
     final material = [
       endpoint,
       method.toUpperCase(),
       sortedQuery,
       bodyHash,
-      tokenHash,
+      scopeHash,
     ].join('|');
 
     return '$prefix:${hash(material)}';
@@ -137,11 +155,11 @@ class CacheKeyBuilder {
     String endpoint, {
     required int page,
     Map<String, String> query = const <String, String>{},
-    String? authToken,
+    String? scope,
   }) => build(
     endpoint: endpoint,
     query: {...query, 'page': '$page'},
-    authToken: authToken,
+    scope: scope,
   );
 
   /// Query parameters flattened in a canonical, order-independent form.

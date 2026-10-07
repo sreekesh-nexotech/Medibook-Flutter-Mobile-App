@@ -15,21 +15,26 @@ import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
 import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../../common/cached/application/states/cached_state.dart';
+import '../../../common/cached/presentation/components/cached_status_bar.dart';
+import '../../application/providers/support_provider.dart';
+import '../../domain/entities/faq.dart';
 import '../components/faq_entry_tile.dart';
-import '../controllers/faq_controller.dart';
+import '../../application/providers/faq_controller.dart';
 
 /// Frequently asked questions (`/faq`) — CM-52.
 ///
-/// Grouped by `faqCategoriesProvider` (Booking / Payments / Records /
-/// Account), searchable across question, answer and category, with each entry
-/// expandable. Every one of the four list states is here:
+/// Content is `GET /patient/faqs` (§3.3) through the three-layer cache, so a
+/// returning user sees the saved copy instantly and an offline one sees it at
+/// all. Grouped by the server's categories, searchable across question,
+/// answer and category, with each entry expandable. Every list state is here:
 ///
-/// * **loading** — [AppSkeletonList] on first mount;
-/// * **error** — [AppErrorView] with a retry that re-runs the load;
+/// * **loading** — [AppSkeletonList] on a cold start;
+/// * **error** — [AppErrorView] with a retry when there is nothing cached;
+/// * **stale / offline / updating** — [CachedStatusBar] over the content;
 /// * **empty** — a search that matched nothing, with "Clear search" *and*
-///   "Contact support" as the ways out (audit §3.2.2: an empty state must
-///   offer an action);
-/// * **content** — the grouped list, refreshable by pulling (audit §3.9.4).
+///   "Contact support" as the ways out;
+/// * **content** — the grouped list, refreshable by pulling.
 class FaqScreen extends ConsumerStatefulWidget {
   const FaqScreen({super.key});
 
@@ -51,9 +56,13 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
     ref.read(faqControllerProvider.notifier).clearQuery();
   }
 
+  Future<void> _refresh() =>
+      ref.read(supportFaqsProvider.notifier).refresh(force: true);
+
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(faqControllerProvider);
+    final search = ref.watch(faqControllerProvider);
+    final content = ref.watch(supportFaqsProvider);
     final sections = ref.watch(faqSectionsProvider);
     final matches = ref.watch(faqMatchCountProvider);
 
@@ -77,9 +86,9 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                 semanticLabel: 'Search the FAQ',
                 textInputAction: TextInputAction.search,
                 onChanged: ref.read(faqControllerProvider.notifier).setQuery,
-                suffix: state.hasQuery
+                suffix: search.hasQuery
                     ? AppIconButton(
-                        icon: MedIcon.close,
+                        icon: PhIcon.x,
                         size: 24,
                         hitAreaSize: 40,
                         semanticLabel: 'Clear search',
@@ -88,7 +97,7 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                     : null,
               ),
             ),
-            if (state.hasQuery)
+            if (search.hasQuery && content.hasValue)
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   AppSpacing.x5.w,
@@ -106,15 +115,19 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                   ),
                 ),
               ),
-            Expanded(child: _body(state, sections)),
+            Expanded(child: _body(search, content, sections)),
           ],
         ),
       ),
     );
   }
 
-  Widget _body(FaqState state, List<FaqSection> sections) {
-    if (state.isLoading) {
+  Widget _body(
+    FaqState search,
+    CachedState<List<FaqCategory>> content,
+    List<FaqSection> sections,
+  ) {
+    if (content.isLoading) {
       return SingleChildScrollView(
         child: AppSkeletonList(
           count: 5,
@@ -129,20 +142,20 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
       );
     }
 
-    if (state.failure != null && sections.isEmpty) {
+    if (content.isError) {
       return AppErrorView(
-        failure: state.failure!,
+        failure: content.failure!,
         headline: 'We could not load the FAQ',
-        onRetry: () => ref.read(faqControllerProvider.notifier).refresh(),
+        onRetry: _refresh,
         secondaryLabel: 'Contact Support',
         onSecondary: () => context.push(AppRoutes.support),
       );
     }
 
     return AppRefreshIndicator(
-      onRefresh: () => ref.read(faqControllerProvider.notifier).refresh(),
+      onRefresh: _refresh,
       child: sections.isEmpty
-          ? _emptyState(state)
+          ? _emptyState(search, content)
           : ListView(
               padding: EdgeInsets.fromLTRB(
                 AppSpacing.x5.w,
@@ -151,17 +164,10 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                 AppSpacing.x8.h,
               ),
               children: [
-                if (state.failure != null) ...[
-                  AppErrorBanner(
-                    message: state.failure!.userMessage,
-                    onTap: () =>
-                        ref.read(faqControllerProvider.notifier).refresh(),
-                  ),
-                  SizedBox(height: AppSpacing.x4.h),
-                ],
+                CachedStatusBar(state: content, onRefresh: _refresh),
                 for (final section in sections) ...[
                   _SectionHeader(
-                    label: section.category,
+                    label: section.title,
                     count: section.entries.length,
                   ),
                   for (final entry in section.entries)
@@ -169,10 +175,10 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
                       padding: EdgeInsets.only(bottom: AppSpacing.x3.h),
                       child: FaqEntryTile(
                         entry: entry,
-                        isExpanded: state.isExpanded(entry.question),
+                        isExpanded: search.isExpanded(entry.id),
                         onToggle: () => ref
                             .read(faqControllerProvider.notifier)
-                            .toggle(entry.question),
+                            .toggle(entry.id),
                       ),
                     ),
                   SizedBox(height: AppSpacing.x3.h),
@@ -185,25 +191,28 @@ class _FaqScreenState extends ConsumerState<FaqScreen> {
     );
   }
 
-  /// Empty means "your search matched nothing" — the seed always has entries —
-  /// so both actions lead somewhere useful.
-  Widget _emptyState(FaqState state) {
+  /// Empty means "your search matched nothing", or the server has published
+  /// no articles yet — both offer a way to a person.
+  Widget _emptyState(FaqState search, CachedState<List<FaqCategory>> content) {
     return ListView(
+      padding: EdgeInsets.symmetric(horizontal: AppSpacing.x5.w),
       children: [
+        SizedBox(height: AppSpacing.x4.h),
+        CachedStatusBar(state: content, onRefresh: _refresh),
         AppEmptyView(
-          iconName: MedIcon.search,
-          headline: 'No answers matched',
-          body: state.hasQuery
-              ? 'Nothing matched "${state.query.trim()}". Try a shorter phrase, '
-                    'or ask us directly.'
-              : 'There are no help articles yet. Our team can still answer you '
-                    'directly.',
-          actionLabel: state.hasQuery ? 'Clear Search' : 'Contact Support',
-          onAction: state.hasQuery
+          iconName: PhIcon.magnifyingGlass,
+          headline: search.hasQuery ? 'No answers matched' : 'No articles yet',
+          body: search.hasQuery
+              ? 'Nothing matched "${search.query.trim()}". Try a shorter '
+                    'phrase, or ask us directly.'
+              : 'There are no help articles published yet. Our team can '
+                    'still answer you directly.',
+          actionLabel: search.hasQuery ? 'Clear Search' : 'Contact Support',
+          onAction: search.hasQuery
               ? _clearSearch
               : () => context.push(AppRoutes.support),
-          secondaryLabel: state.hasQuery ? 'Contact Support' : null,
-          onSecondary: state.hasQuery
+          secondaryLabel: search.hasQuery ? 'Contact Support' : null,
+          onSecondary: search.hasQuery
               ? () => context.push(AppRoutes.support)
               : null,
         ),
@@ -267,8 +276,8 @@ class _StillStuckCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppInlineEmpty(
-      message: 'Still stuck? Our support team answers within one working day.',
-      iconName: MedIcon.hospital,
+      message: 'Still stuck? Raise a request and our support team will reply.',
+      iconName: PhIcon.firstAid,
       actionLabel: 'Contact Support',
       onAction: onContact,
     );

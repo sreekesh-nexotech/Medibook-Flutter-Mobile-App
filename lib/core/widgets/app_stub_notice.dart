@@ -90,7 +90,7 @@ class AppStubBanner extends StatelessWidget {
     super.key,
     this.title,
     this.body,
-    this.iconName = MedIcon.closeCircle,
+    this.iconName = PhIcon.xCircle,
     this.margin,
   });
 

@@ -54,24 +54,37 @@ class _SegTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 9.h, horizontal: 18.w),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.brand : AppColors.surface,
-          borderRadius: AppRadii.pill,
-          border: isActive
-              ? null
-              : Border.all(color: AppColors.border, width: 1.w),
-        ),
-        child: Text(
-          label,
-          style: AppText.poppins(
-            size: AppFontSize.sm,
-            weight: AppText.medium,
-            color: isActive ? AppColors.textOnBrand : AppColors.textBody,
+    // The pill is drawn ~40dp tall, but the tap area is at least 48dp and a
+    // screen reader hears a selectable tab (CL UI-014: they were 39-41dp and
+    // announced as plain text).
+    return Semantics(
+      button: true,
+      selected: isActive,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          alignment: Alignment.center,
+          child: Container(
+            padding: EdgeInsets.symmetric(vertical: 9.h, horizontal: 18.w),
+            decoration: BoxDecoration(
+              color: isActive ? AppColors.brand : AppColors.surface,
+              borderRadius: AppRadii.pill,
+              border: isActive
+                  ? null
+                  : Border.all(color: AppColors.border, width: 1.w),
+            ),
+            child: Text(
+              label,
+              style: AppText.poppins(
+                size: AppFontSize.sm,
+                weight: AppText.medium,
+                color: isActive ? AppColors.textOnBrand : AppColors.textBody,
+              ),
+            ),
           ),
         ),
       ),

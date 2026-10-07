@@ -64,16 +64,22 @@ class AppIconButton extends StatelessWidget {
 
   /// The label used when [semanticLabel] is omitted, derived from the icon.
   ///
-  /// Covers every glyph in [MedIcon]; anything unmapped falls back to
-  /// `"<name> button"`, which is still better than silence.
+  /// Covers every glyph in [MedIcon] and the [PhIcon]s a button can carry;
+  /// anything unmapped falls back to `"<name> button"`, which is still better
+  /// than silence.
   static String defaultSemanticLabel(String icon) => switch (icon) {
-    MedIcon.back => 'Back',
-    MedIcon.close || MedIcon.closeCircle => 'Close',
-    MedIcon.bell => 'Notifications',
-    MedIcon.search => 'Search',
-    MedIcon.edit => 'Edit',
-    MedIcon.download => 'Download',
-    MedIcon.eye => 'View',
+    MedIcon.back || PhIcon.caretLeft => 'Back',
+    MedIcon.close ||
+    MedIcon.closeCircle ||
+    PhIcon.x ||
+    PhIcon.xCircle => 'Close',
+    MedIcon.bell || PhIcon.bell => 'Notifications',
+    MedIcon.search || PhIcon.magnifyingGlass => 'Search',
+    MedIcon.edit || PhIcon.pencilSimple => 'Edit',
+    MedIcon.download || PhIcon.downloadSimple => 'Download',
+    MedIcon.eye || PhIcon.eye => 'View',
+    PhIcon.plus => 'Add',
+    PhIcon.funnelSimple => 'Filter',
     MedIcon.calendar => 'Calendar',
     MedIcon.clock => 'Time',
     MedIcon.location => 'Location',
@@ -84,7 +90,9 @@ class AppIconButton extends StatelessWidget {
     MedIcon.hospital => 'Hospital',
     MedIcon.bag => 'Services',
     MedIcon.records => 'Records',
-    _ => '${icon.replaceAll('-', ' ')} button',
+    _ =>
+      '${icon.replaceFirst(RegExp('^(ph|dept)-'), '').replaceAll('-', ' ')} '
+          'button',
   };
 
   @override

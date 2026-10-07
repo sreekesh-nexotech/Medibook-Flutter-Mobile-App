@@ -6,8 +6,13 @@ cacheKey = SHA256(
   HTTP_method + 
   sorted_query_params + 
   request_body_hash +
-  auth_token_hash
+  auth_scope_hash
 )
+
+auth_scope_hash = SHA256 of the signed-in account's id ('anon' when signed out).
+Not the access token: it is replaced every 15 minutes, and a token-based key makes
+everything saved before the last refresh unreachable offline (DEF-065, 5 Oct 2026).
+The cache is still wiped on sign-out.
 Cache Layers
 
 Memory Cache (L1): LRU, 50MB max, 500 entries max
@@ -70,10 +75,41 @@ Error Paths:
 - Hive corrupted + offline: Show error screen with retry button
 - Cache exists but unreadable: Show last known good data from memory if available
 Scenario 4: Navigation Between Screens
+Rule (owner decision, 5 Oct 2026): every screen shows the latest data when it
+is navigated to. "Arriving" at a screen means opening it, selecting its tab,
+landing on it from a link, or returning to it when the screen on top of it is
+closed. (This replaces the earlier rule "No API call needed (cache still
+valid)".)
+
+On arrival:
 1. Check Memory → Hit
 2. Return from Memory (~1-5ms)
 3. UI renders immediately
-4. No API call needed (cache still valid)
+4. Re-check with the server in the background (conditional request, Scenario 6)
+
+   Case A: 304 Not Modified
+   - Keep showing cached data
+   - Update cache timestamp to "now"
+
+   Case B: 200 OK (data changed)
+   - Update UI
+   - Update Memory + Hive
+
+5. A screen that stayed built underneath another one (a tab, a list under its
+   detail) re-reads its own data when it is navigated back to
+
+Within one visit to a screen:
+- A memory copy that has already been checked since the arrival is returned
+  with no API call
+
+Not re-read on arrival:
+- Forms and edit sheets (a re-read would discard what the user has typed)
+- Sign-in, sign-up and onboarding screens (nothing to re-read)
+- Payment screens (a re-read must not restart a payment)
+
+Error Paths:
+- Re-check fails: Keep showing cached data, log error (as Scenario 2)
+- No network: Scenario 3 flow
 
 Fallback:
 - Memory evicted: Check Hive (Scenario 2 flow)

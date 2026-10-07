@@ -26,7 +26,7 @@ class AuthLogo extends StatelessWidget {
           ),
           alignment: Alignment.center,
           child: AppIcon(
-            MedIcon.hospital,
+            PhIcon.firstAid,
             size: 28,
             color: AppColors.textOnBrand,
           ),

@@ -8,35 +8,29 @@ import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/location.dart';
-import '../../../../core/mock_data/seed_providers.dart';
+import '../../../../core/error/failure.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
+import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
-import '../../domain/booking_routes.dart';
+import '../../../../core/widgets/states/app_error_view.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../application/providers/discovery_providers.dart';
+import '../booking_routes.dart';
+import '../../domain/entities/location.dart';
+import '../components/cache_status_bar.dart';
 import '../components/flow_screen_enter.dart';
+import '../../application/providers/location_scope_provider.dart';
+import '../../domain/entities/location_scope.dart';
 
 /// Where discovery starts (CM-10). Route: `/locations`.
 ///
-/// The audit's finding: *"There is no location picker and no hospital list.
-/// Discovery begins at a department."* This is step zero of the funnel the app
-/// was missing — city and area first, then `/hospitals` narrowed to that
-/// place, then department → doctor → slot.
-///
-/// Popular areas get a shortcut row; everything else is grouped under its city
-/// heading (`citiesProvider` supplies the order, so the headings can never
-/// drift from the data). A search box filters both, because ten areas is
-/// already more than a phone screen shows at 1.3x text scale.
-///
-/// Router wiring:
-/// ```dart
-/// GoRoute(
-///   path: AppRoutes.locations,
-///   builder: (_, __) => const LocationsScreen(),
-/// )
-/// ```
+/// City and area first (`GET /patient/locations`, §7.1), then `/hospitals`
+/// narrowed to that place, then department → doctor → slot. Popular areas
+/// get a shortcut row; everything else is grouped under its city heading. A
+/// search box filters both, locally — the list is small and already cached.
 class LocationsScreen extends ConsumerStatefulWidget {
   const LocationsScreen({super.key});
 
@@ -45,6 +39,7 @@ class LocationsScreen extends ConsumerStatefulWidget {
 }
 
 class _LocationsScreenState extends ConsumerState<LocationsScreen> {
+  // Purely visual: the filter text for this visit.
   final TextEditingController _search = TextEditingController();
   String _query = '';
 
@@ -54,8 +49,20 @@ class _LocationsScreenState extends ConsumerState<LocationsScreen> {
     super.dispose();
   }
 
-  void _openLocation(Location location) =>
-      context.push(BookingRoutes.hospitalsIn(location));
+  /// Saves the choice (Home and the Hospitals list stay scoped to it after
+  /// a relaunch, CL DISC-001), then shows that area's hospitals.
+  Future<void> _openLocation(Location location) async {
+    await ref
+        .read(locationScopeProvider.notifier)
+        .choose(LocationScope(city: location.city, area: location.area));
+    if (mounted) context.push(BookingRoutes.hospitalsIn(location));
+  }
+
+  /// "All hospitals": forgets the saved location.
+  Future<void> _openEverywhere() async {
+    await ref.read(locationScopeProvider.notifier).clear();
+    if (mounted) context.push(AppRoutes.hospitals);
+  }
 
   bool _matches(Location location) {
     if (_query.isEmpty) return true;
@@ -64,20 +71,26 @@ class _LocationsScreenState extends ConsumerState<LocationsScreen> {
         location.city.toLowerCase().contains(needle);
   }
 
+  /// Pull-to-refresh asks the server (`forceRefresh`: the saved ETag is still
+  /// sent, so an unchanged list is a cheap 304), then the provider reads
+  /// again and finds that answer. It used to re-read only the copy in
+  /// memory, so a pull right after opening never reached the network.
+  /// Offline, what is saved stays and the status line says so.
+  Future<void> _refresh() async {
+    try {
+      await ref
+          .read(discoveryRepositoryProvider)
+          .locations(forceRefresh: true)
+          .last;
+    } catch (_) {
+      // What is saved stays on screen; the screen shows its own state.
+    }
+    ref.invalidate(discoveryLocationsProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final all = ref.watch(locationsProvider);
-    final popular = ref.watch(popularLocationsProvider);
-    final cities = ref.watch(citiesProvider);
-
-    final matching = [
-      for (final l in all)
-        if (_matches(l)) l,
-    ];
-    final matchingPopular = [
-      for (final l in popular)
-        if (_matches(l)) l,
-    ];
+    final locations = ref.watch(discoveryLocationsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.bgApp,
@@ -92,73 +105,49 @@ class _LocationsScreenState extends ConsumerState<LocationsScreen> {
                     : context.go(AppRoutes.home),
               ),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(20.w, 6.h, 20.w, 28.h),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AppTextField(
-                        controller: _search,
-                        hintText: 'Search city or area',
-                        iconName: MedIcon.search,
-                        semanticLabel: 'Search for a city or area',
-                        textInputAction: TextInputAction.search,
-                        onChanged: (value) =>
-                            setState(() => _query = value.trim()),
-                      ),
-                      SizedBox(height: AppSpacing.x5.h),
-                      if (matching.isEmpty)
-                        AppEmptyView(
-                          iconName: MedIcon.location,
-                          headline: 'No area matches "$_query"',
-                          body:
-                              'We currently list ${all.length} areas across '
-                              '${cities.length} cities.',
-                          actionLabel: 'Clear the search',
-                          onAction: () {
-                            _search.clear();
-                            setState(() => _query = '');
-                          },
-                          secondaryLabel: 'See every hospital',
-                          onSecondary: () => context.push(AppRoutes.hospitals),
-                        )
-                      else ...[
-                        if (matchingPopular.isNotEmpty) ...[
-                          _Heading('Popular right now'),
-                          SizedBox(height: AppSpacing.x3.h),
-                          Wrap(
-                            spacing: AppSpacing.x2.w,
-                            runSpacing: AppSpacing.x2.h,
-                            children: [
-                              for (final l in matchingPopular)
-                                _PopularChip(
-                                  location: l,
-                                  onTap: () => _openLocation(l),
-                                ),
-                            ],
+                child: AppRefreshIndicator(
+                  semanticsLabel: 'Refresh locations',
+                  onRefresh: _refresh,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(20.w, 6.h, 20.w, 28.h),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppTextField(
+                          controller: _search,
+                          hintText: 'Search city or area',
+                          iconName: MedIcon.search,
+                          semanticLabel: 'Search for a city or area',
+                          textInputAction: TextInputAction.search,
+                          onChanged: (value) =>
+                              setState(() => _query = value.trim()),
+                        ),
+                        SizedBox(height: AppSpacing.x5.h),
+                        CacheStatusBar(
+                          // valueOrNull: `.value` re-throws a list that
+                          // could not load, which replaced the screen with
+                          // Flutter's red error page offline.
+                          result: locations.valueOrNull,
+                          onRefresh: _refresh,
+                        ),
+                        locations.when(
+                          loading: () => const AppSkeletonList(count: 4),
+                          error: (error, _) => AppErrorView(
+                            failure: error.asFailure(),
+                            onRetry: _refresh,
+                            secondaryLabel: 'See every hospital',
+                            // Forgets the saved area first, as the same
+                            // button does elsewhere — otherwise "every
+                            // hospital" opened still filtered to it.
+                            onSecondary: _openEverywhere,
                           ),
-                          SizedBox(height: AppSpacing.x6.h),
-                        ],
-                        for (final city in cities) ...[
-                          if (matching.any((l) => l.city == city)) ...[
-                            _Heading(city),
-                            SizedBox(height: AppSpacing.x3.h),
-                            for (final l in matching)
-                              if (l.city == city) ...[
-                                _LocationRow(
-                                  location: l,
-                                  onTap: () => _openLocation(l),
-                                ),
-                                SizedBox(height: AppSpacing.x2.h),
-                              ],
-                            SizedBox(height: AppSpacing.x4.h),
-                          ],
-                        ],
-                        _AllHospitalsRow(
-                          onTap: () => context.push(AppRoutes.hospitals),
+                          data: (result) => _body(
+                            result.value.results,
+                            total: result.value.total,
+                          ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -166,6 +155,82 @@ class _LocationsScreenState extends ConsumerState<LocationsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// [total] is the server's count of areas, which "We currently list …"
+  /// names — not the rows that happened to load.
+  Widget _body(List<Location> all, {required int total}) {
+    final matching = [
+      for (final l in all)
+        if (_matches(l)) l,
+    ];
+    final matchingPopular = [
+      for (final l in matching)
+        if (l.isPopular) l,
+    ];
+    final cities = <String>[];
+    for (final l in all) {
+      if (!cities.contains(l.city)) cities.add(l.city);
+    }
+
+    if (all.isEmpty) {
+      return AppEmptyView(
+        iconName: PhIcon.mapPin,
+        headline: 'No areas listed yet',
+        body: 'The directory has no locations right now.',
+        actionLabel: 'See every hospital',
+        onAction: _openEverywhere,
+      );
+    }
+    if (matching.isEmpty) {
+      return AppEmptyView(
+        iconName: PhIcon.mapPin,
+        headline: 'No area matches "$_query"',
+        body:
+            'We currently list $total ${total == 1 ? 'area' : 'areas'} '
+            'across ${cities.length} '
+            '${cities.length == 1 ? 'city' : 'cities'}.',
+        actionLabel: 'Clear the search',
+        onAction: () {
+          _search.clear();
+          setState(() => _query = '');
+        },
+        secondaryLabel: 'See every hospital',
+        onSecondary: _openEverywhere,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (matchingPopular.isNotEmpty) ...[
+          const _Heading('Popular right now'),
+          SizedBox(height: AppSpacing.x3.h),
+          Wrap(
+            spacing: AppSpacing.x2.w,
+            runSpacing: AppSpacing.x2.h,
+            children: [
+              for (final l in matchingPopular)
+                _PopularChip(location: l, onTap: () => _openLocation(l)),
+            ],
+          ),
+          SizedBox(height: AppSpacing.x6.h),
+        ],
+        for (final city in cities) ...[
+          if (matching.any((l) => l.city == city)) ...[
+            _Heading(city),
+            SizedBox(height: AppSpacing.x3.h),
+            for (final l in matching)
+              if (l.city == city) ...[
+                _LocationRow(location: l, onTap: () => _openLocation(l)),
+                SizedBox(height: AppSpacing.x2.h),
+              ],
+            SizedBox(height: AppSpacing.x4.h),
+          ],
+        ],
+        _AllHospitalsRow(onTap: _openEverywhere),
+      ],
     );
   }
 }
@@ -218,7 +283,7 @@ class _PopularChip extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppIcon(MedIcon.location, size: 14, color: AppColors.brand),
+                AppIcon(PhIcon.mapPin, size: 14, color: AppColors.brand),
                 SizedBox(width: 6.w),
                 Text(
                   location.area,
@@ -267,7 +332,7 @@ class _LocationRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadius.sm.r),
                 ),
                 child: AppIcon(
-                  MedIcon.location,
+                  PhIcon.mapPin,
                   size: 16,
                   color: AppColors.textMuted,
                 ),
@@ -288,7 +353,7 @@ class _LocationRow extends StatelessWidget {
                     ),
                     SizedBox(height: 2.h),
                     Text(
-                      location.city,
+                      '${location.city}, ${location.state}',
                       style: AppText.poppins(
                         size: AppFontSize.xs,
                         color: AppColors.textMuted,
@@ -321,7 +386,7 @@ class _AllHospitalsRow extends StatelessWidget {
       shadow: AppShadowToken.none,
       child: Row(
         children: [
-          AppIcon(MedIcon.hospital, size: 18, color: AppColors.brand),
+          AppIcon(PhIcon.firstAid, size: 18, color: AppColors.brand),
           SizedBox(width: AppSpacing.x3.w),
           Expanded(
             child: Text(

@@ -47,3 +47,6 @@ app.*.map.json
 # Golden-test diff artifacts, written by `flutter test` on a golden mismatch.
 # Generated output — never committed.
 test/**/failures/
+
+# Local --dart-define-from-file values (Sentry DSN etc.) — never committed.
+/dart_defines.local.json

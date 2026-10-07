@@ -1,0 +1,463 @@
+{
+  "generated_at": "2026-09-29T14:42:49.046540+00:00",
+  "password_for_every_account": "seed_password_123",
+  "how_to_log_in": {
+    "platform": "POST /api/v1/platform/auth/login {email, password}",
+    "hospital": "POST /api/v1/hospital/auth/login {email, password}",
+    "patient": "POST /api/v1/patient/auth/login/password {identifier, password} (identifier = phone in E.164 or email)",
+    "display": "POST /api/v1/display/auth {device_key} (keys below, per hospital)"
+  },
+  "platform_staff": [
+    {
+      "role": "owner",
+      "name": "Kavya Iyer",
+      "email": "kavya.iyer@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    },
+    {
+      "role": "ops_manager",
+      "name": "Rohan Mehta",
+      "email": "rohan.mehta@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    },
+    {
+      "role": "finance",
+      "name": "Farah Khan",
+      "email": "farah.khan@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    },
+    {
+      "role": "support",
+      "name": "Deepak Nair",
+      "email": "deepak.nair@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    },
+    {
+      "role": "compliance",
+      "name": "Lakshmi Venkat",
+      "email": "lakshmi.venkat@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    },
+    {
+      "role": "read_only",
+      "name": "Arjun Bhat",
+      "email": "arjun.bhat@medibook.example.com",
+      "login": "POST /api/v1/platform/auth/login"
+    }
+  ],
+  "hospitals": [
+    {
+      "name": "Lakeshore Multispeciality Hospital",
+      "slug": "lakeshore-multispeciality-kochi",
+      "status": "active",
+      "city": "Kochi",
+      "staff": [
+        {
+          "role": "admin",
+          "name": "Anita Menon",
+          "email": "anita.menon@lakeshore.medibook.example.com",
+          "phone": "+919705571090",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "receptionist",
+          "name": "Vineeth Kumar",
+          "email": "vineeth.kumar@lakeshore.medibook.example.com",
+          "phone": "+919705579009",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "receptionist",
+          "name": "Shalini Thomas",
+          "email": "shalini.thomas@lakeshore.medibook.example.com",
+          "phone": "+919705586928",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "accountant",
+          "name": "Joseph Kurian",
+          "email": "joseph.kurian@lakeshore.medibook.example.com",
+          "phone": "+919705594847",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "dept_front_desk",
+          "name": "Nimmy George",
+          "email": "nimmy.george@lakeshore.medibook.example.com",
+          "phone": "+919705602766",
+          "login": "POST /api/v1/hospital/auth/login"
+        }
+      ],
+      "pending_invitations_no_password": [
+        "pending.invitee@lakeshore.medibook.example.com"
+      ],
+      "display_devices": [
+        {
+          "name": "OPD waiting hall screen",
+          "device_key": "mbd_jjvEqd2U5XnPbeGwjE5x80UjvwIil4BQBXlRZbZcgSc"
+        }
+      ]
+    },
+    {
+      "name": "Sahyadri City Hospital",
+      "slug": "sahyadri-city-hospital-pune",
+      "status": "active",
+      "city": "Pune",
+      "staff": [
+        {
+          "role": "admin",
+          "name": "Rahul Kulkarni",
+          "email": "rahul.kulkarni@sahyadri.medibook.example.com",
+          "phone": "+919705650280",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "receptionist",
+          "name": "Sneha Joshi",
+          "email": "sneha.joshi@sahyadri.medibook.example.com",
+          "phone": "+919705658199",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "accountant",
+          "name": "Amit Deshmukh",
+          "email": "amit.deshmukh@sahyadri.medibook.example.com",
+          "phone": "+919705666118",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "dept_front_desk",
+          "name": "Pooja Shinde",
+          "email": "pooja.shinde@sahyadri.medibook.example.com",
+          "phone": "+919705674037",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "dept_front_desk",
+          "name": "Kiran Patil",
+          "email": "kiran.patil@sahyadri.medibook.example.com",
+          "phone": "+919705681956",
+          "login": "POST /api/v1/hospital/auth/login"
+        }
+      ],
+      "pending_invitations_no_password": [
+        "pending.invitee@sahyadri.medibook.example.com"
+      ],
+      "display_devices": [
+        {
+          "name": "OPD waiting hall screen",
+          "device_key": "mbd_BPnbchI07fQdbmNrveM7m8KkfJ7A7xC8t9TQIbSs0a4"
+        }
+      ]
+    },
+    {
+      "name": "Nilgiri Family Clinic",
+      "slug": "nilgiri-family-clinic-coimbatore",
+      "status": "active",
+      "city": "Coimbatore",
+      "staff": [
+        {
+          "role": "admin",
+          "name": "Karthik Raman",
+          "email": "karthik.raman@nilgiri.medibook.example.com",
+          "phone": "+919705729470",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "receptionist",
+          "name": "Divya Murugan",
+          "email": "divya.murugan@nilgiri.medibook.example.com",
+          "phone": "+919705737389",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "accountant",
+          "name": "Ganesh Iyengar",
+          "email": "ganesh.iyengar@nilgiri.medibook.example.com",
+          "phone": "+919705745308",
+          "login": "POST /api/v1/hospital/auth/login"
+        },
+        {
+          "role": "dept_front_desk",
+          "name": "Revathi Subbu",
+          "email": "revathi.subbu@nilgiri.medibook.example.com",
+          "phone": "+919705753227",
+          "login": "POST /api/v1/hospital/auth/login"
+        }
+      ],
+      "pending_invitations_no_password": [
+        "pending.invitee@nilgiri.medibook.example.com"
+      ],
+      "display_devices": [
+        {
+          "name": "OPD waiting hall screen",
+          "device_key": "mbd_KuhK4pZMkJ-KfHFSxopSpsJuMtY5pcNoYce4efaz5hk"
+        }
+      ]
+    },
+    {
+      "name": "Deccan Heart Institute",
+      "slug": "deccan-heart-institute-hyderabad",
+      "status": "onboarding",
+      "city": "Hyderabad",
+      "staff": [],
+      "pending_invitations_no_password": [
+        "farhan.ali@deccan.medibook.example.com"
+      ],
+      "display_devices": []
+    }
+  ],
+  "patients": [
+    {
+      "name": "Asha Rao",
+      "phone": "+919808659500",
+      "email": "asha.rao@patients.medibook.example.com",
+      "status": "active",
+      "family": [
+        "Kavin Rao (child)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Vivek Menon",
+      "phone": "+919808667419",
+      "email": "vivek.menon@patients.medibook.example.com",
+      "status": "active",
+      "family": [
+        "Lalitha Menon (parent)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Priya Nair",
+      "phone": "+919808675338",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Sanjay Varma",
+      "phone": "+919808683257",
+      "email": "sanjay.varma@patients.medibook.example.com",
+      "status": "active",
+      "family": [
+        "Tara Varma (spouse)",
+        "Ishaan Varma (child)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Fathima Beevi",
+      "phone": "+919808691176",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Jacob Mathew",
+      "phone": "+919808699095",
+      "email": "jacob.mathew@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Nandini Pillai",
+      "phone": "+919808707014",
+      "email": null,
+      "status": "active",
+      "family": [
+        "Gopal Pillai (parent)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Rajesh Kumar",
+      "phone": "+919808714933",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Aarti Kulkarni",
+      "phone": "+919808722852",
+      "email": "aarti.kulkarni@patients.medibook.example.com",
+      "status": "active",
+      "family": [
+        "Mihir Kulkarni (child)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Nikhil Jadhav",
+      "phone": "+919808730771",
+      "email": "nikhil.jadhav@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Shruti Gokhale",
+      "phone": "+919808738690",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Manoj Pawar",
+      "phone": "+919808746609",
+      "email": null,
+      "status": "active",
+      "family": [
+        "Sunita Pawar (spouse)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Ritika Sharma",
+      "phone": "+919808754528",
+      "email": "ritika.sharma@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Omkar Bhosale",
+      "phone": "+919808762447",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Tanvi Phadke",
+      "phone": "+919808770366",
+      "email": "tanvi.phadke@patients.medibook.example.com",
+      "status": "active",
+      "family": [
+        "Anaya Phadke (child)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Harsh Vora",
+      "phone": "+919808778285",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Meenakshi Sundaram",
+      "phone": "+919808786204",
+      "email": "meenakshi.sundaram@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Arun Prakash",
+      "phone": "+919800717880",
+      "email": null,
+      "status": "active",
+      "family": [
+        "Kavya Arun (child)"
+      ],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Gayathri Srinivasan",
+      "phone": "+919808802042",
+      "email": "gayathri.srinivasan@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Muthu Kannan",
+      "phone": "+919808809961",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Lavanya Mohan",
+      "phone": "+919808817880",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Imran Sheikh",
+      "phone": "+919808825799",
+      "email": "imran.sheikh@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Zoya Mirza",
+      "phone": "+919808833718",
+      "email": null,
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Ravi Teja",
+      "phone": "+919808841637",
+      "email": "ravi.teja@patients.medibook.example.com",
+      "status": "active",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    },
+    {
+      "name": "Elizabeth Joy",
+      "phone": "+919808849556",
+      "email": null,
+      "status": "pending_deletion",
+      "family": [],
+      "login": "POST /api/v1/patient/auth/login/password (identifier = phone or email)"
+    }
+  ],
+  "notes": [
+    "Elizabeth Joy requested account deletion (30-day cooling-off); logging in reactivates the account."
+  ],
+  "counts": {
+    "api_booking_http_201": 1,
+    "appointments.cancelled_by_hospital": 16,
+    "appointments.cancelled_by_patient": 55,
+    "appointments.completed": 283,
+    "appointments.expired_unpaid": 23,
+    "appointments.no_show": 41,
+    "appointments.online": 338,
+    "appointments.pending_payment_live_hold": 2,
+    "appointments.rejected": 7,
+    "appointments.walk_in": 133,
+    "hospitals.read_only": 1,
+    "lockouts": 1,
+    "logins": 12,
+    "medical_documents": 21,
+    "outbox.pending_after_drain": 4204,
+    "patient_change_requests": 17,
+    "payments.desk_orders": 133,
+    "payments.online_checkout": 240,
+    "payments.online_webhook": 73,
+    "payments.retried": 18,
+    "refunds.desk": 10,
+    "refunds.gateway": 78,
+    "refused:bad_login:AUTH_INVALID_CREDENTIALS": 5,
+    "refused:book_online:COUPON_INVALID": 21,
+    "refused:book_online:COUPON_USAGE_CAP": 1,
+    "reviews": 65,
+    "subscription_invoices.paid": 6,
+    "support_tickets": 18,
+    "webhook_events.delivery": 2
+  }
+}

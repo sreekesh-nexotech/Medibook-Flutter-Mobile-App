@@ -95,7 +95,7 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
     final bodyStyle = AppText.poppins(
       size: AppFontSize.sm,
       height: 1.45,
-      color: hasError ? AppColors.danger : AppColors.textBody,
+      color: hasError ? AppColors.dangerText : AppColors.textBody,
     );
 
     return Column(
@@ -132,7 +132,10 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
             Expanded(
               child: GestureDetector(
                 // Tapping the sentence toggles the box; the three links take
-                // their own taps first.
+                // their own taps first. Hidden from screen readers: the
+                // labelled checkbox beside it is how they toggle, and this
+                // tap target had no label of its own (Screen Coverage pass).
+                excludeFromSemantics: true,
                 onTap: _toggle,
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: 13.h),
@@ -161,7 +164,7 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
             widget.errorText ?? '',
             style: AppText.poppins(
               size: AppFontSize.xs,
-              color: AppColors.danger,
+              color: AppColors.dangerText,
             ),
           ),
         ],

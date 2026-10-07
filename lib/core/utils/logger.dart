@@ -68,6 +68,16 @@ abstract final class AppLogger {
   static void warning(String message, {String? name, Object? error}) =>
       log(LogLevel.warning, message, name: name, error: error);
 
+  /// A failure the app cannot start past (a misconfigured build). Always
+  /// written to the device log — logcat / the Xcode console — even in a
+  /// release build, where the other levels are off and DevTools is absent,
+  /// so whoever installs a broken build can see why (CL INS-007). The
+  /// logger is the one file allowed to print (pre-commit check 4).
+  static void fatal(String message, {String? name}) {
+    debugPrint('[${name ?? 'app'}] FATAL $message');
+    log(LogLevel.error, message, name: name);
+  }
+
   static void error(
     String message, {
     String? name,

@@ -12,34 +12,61 @@ class QuickAction {
     required this.iconName,
     required this.label,
     required this.onTap,
+    this.caption,
   });
 
-  /// [MedIcon] name for the tile glyph.
+  /// [PhIcon] / [DeptIcon] name for the tile mark.
   final String iconName;
   final String label;
   final VoidCallback onTap;
+
+  /// A muted line under the label ("2 hospitals"), or null.
+  final String? caption;
 }
 
-/// A row of three icon tiles — reused by both "Quick Booking" and "Available
-/// Services" on Home. Each tile is an [AppCard] (press feedback baked in) with
-/// a tinted rounded icon holder over a centered label.
+/// The design's three-column tile grid — used by both "Quick Booking" and
+/// "Available Services" on Home. `gap 12` both ways; any count wraps into
+/// rows of three, the last row padded so tiles keep their width.
+///
+/// Each tile is a `Card` (16 padding, `--radius-lg`, `--shadow-sm`) holding a
+/// centred column (`gap 12`, `padding 4px 0`): a `30` brand-coloured mark over
+/// a `13/500` text-primary label.
 class QuickActionGrid extends StatelessWidget {
   const QuickActionGrid({super.key, required this.actions});
 
-  /// Exactly three actions (left → right).
   final List<QuickAction> actions;
+
+  static const int _columns = 3;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < actions.length; i++) ...[
-          if (i > 0) SizedBox(width: 12.w),
-          Expanded(child: _Tile(action: actions[i])),
-        ],
-      ],
-    );
+    final rows = <Widget>[];
+    for (var start = 0; start < actions.length; start += _columns) {
+      final row = <Widget>[];
+      for (var i = 0; i < _columns; i++) {
+        if (i > 0) row.add(SizedBox(width: 12.w));
+        final index = start + i;
+        row.add(
+          Expanded(
+            child: index < actions.length
+                ? _Tile(action: actions[index])
+                : const SizedBox.shrink(),
+          ),
+        );
+      }
+      if (rows.isNotEmpty) rows.add(SizedBox(height: 12.h));
+      // Stretch inside an intrinsic-height row, so the three tiles share the
+      // tallest label's height like grid cells do.
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: row,
+          ),
+        ),
+      );
+    }
+    return Column(children: rows);
   }
 }
 
@@ -52,32 +79,42 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       onTap: action.onTap,
-      padding: EdgeInsets.symmetric(vertical: 18.h, horizontal: 8.w),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 46.r,
-            height: 46.r,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceTint,
-              borderRadius: BorderRadius.circular(14.r),
+      // The design's 16px card padding, narrowed at the sides so a one-word
+      // label ("Appointment") stays on one line in a 109px tile — the browser
+      // lets it spill into the padding; Flutter would break the word.
+      padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 16.h),
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 4.h),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(action.iconName, size: 30, color: AppColors.brand),
+            SizedBox(height: 12.h),
+            Text(
+              action.label,
+              textAlign: TextAlign.center,
+              style: AppText.poppins(
+                size: AppFontSize.sm,
+                weight: AppText.medium,
+                color: AppColors.textPrimary,
+                height: 1.35,
+              ),
             ),
-            child: Center(
-              child: AppIcon(action.iconName, size: 26, color: AppColors.brand),
-            ),
-          ),
-          SizedBox(height: 12.h),
-          Text(
-            action.label,
-            textAlign: TextAlign.center,
-            style: AppText.poppins(
-              size: 13,
-              weight: AppText.medium,
-              color: AppColors.textPrimary,
-            ),
-          ),
-        ],
+            if (action.caption != null) ...[
+              SizedBox(height: 2.h),
+              Text(
+                action.caption!,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.poppins(
+                  size: AppFontSize.xs,
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

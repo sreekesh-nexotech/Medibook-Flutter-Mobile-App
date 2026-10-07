@@ -3,58 +3,56 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../app/config/constants.dart';
-import '../../../../app/config/feature_flags.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/fee_breakdown.dart';
+import '../../../../core/network/network_exceptions.dart';
 import '../../../../core/utils/money.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_text_field.dart';
 
-/// Coupon entry for the booking summary and the payment screen (CM-19).
+/// Coupon entry for the booking summary (CM-19).
 ///
-/// The audit found no coupon entry anywhere, which is why the fee could be a
-/// single string: with nothing able to change the price, nothing had to be
-/// recomputed. This is the control that changes it, and it is deliberately
-/// honest about failure — an unknown code says so inline and the price does
-/// not move. It never silently ignores a code.
+/// "Apply" is a fee-quote call with `coupon_code` (§8.3): the backend prices
+/// the coupon and says whether it is valid. This widget shows that verdict
+/// honestly — an unknown code says so inline and the price does not move.
+/// There is no local coupon table.
 ///
 /// Applied state shows the code, the money it actually took off, and a Remove
-/// control, because a discount you cannot remove is a trap if the patient
-/// mistypes a better one.
-///
-/// The owning screen holds the applied code and the error (they live in the
-/// booking draft); this widget owns only the text being typed.
+/// control. The owning screen holds the typed code and the quote; this widget
+/// owns only the text being typed.
 class CouponField extends StatefulWidget {
   const CouponField({
     super.key,
     required this.appliedCode,
-    required this.discount,
+    required this.discountPaise,
     required this.onApply,
     required this.onRemove,
-    this.errorText,
+    this.rejectionCode,
     this.enabled = true,
+    this.checking = false,
   });
 
-  /// The code currently applied, or null.
+  /// The code the quote accepted, or null.
   final String? appliedCode;
 
-  /// What [appliedCode] took off — shown so the saving is verifiable.
-  final Money discount;
+  /// What [appliedCode] took off (paise) — shown so the saving is verifiable.
+  final int discountPaise;
 
   /// Fires with the trimmed, upper-cased code the patient typed.
   final ValueChanged<String> onApply;
 
   final VoidCallback onRemove;
 
-  /// Why the last attempt failed, or null.
-  final String? errorText;
+  /// The backend's `coupon.reason` for a refused code, or null.
+  final String? rejectionCode;
 
-  /// False while a payment is in flight — the price must not change under a
-  /// gateway call.
+  /// False while a booking is in flight — the price must not change under it.
   final bool enabled;
+
+  /// True while the quote with the coupon is loading.
+  final bool checking;
 
   @override
   State<CouponField> createState() => _CouponFieldState();
@@ -79,6 +77,17 @@ class _CouponFieldState extends State<CouponField> {
     _controller.clear();
     widget.onRemove();
   }
+
+  /// House wording for the four coupon rejections (§8.3).
+  static String? _reasonText(String? code) => switch (code) {
+    null => null,
+    ApiErrorCodes.couponInvalid => 'That coupon code is not valid.',
+    ApiErrorCodes.couponExpired => 'That coupon has expired.',
+    ApiErrorCodes.couponMinOrder =>
+      'The order is below the minimum for that coupon.',
+    ApiErrorCodes.couponUsageCap => 'That coupon has been used up.',
+    _ => 'That coupon could not be applied.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -111,19 +120,16 @@ class _CouponFieldState extends State<CouponField> {
               child: AppTextField(
                 controller: _controller,
                 hintText: 'Enter code',
-                errorText: widget.errorText,
-                enabled: widget.enabled,
+                errorText: _reasonText(widget.rejectionCode),
+                enabled: widget.enabled && !widget.checking,
                 semanticLabel: 'Coupon code',
                 textCapitalization: TextCapitalization.characters,
                 textInputAction: TextInputAction.done,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
-                  LengthLimitingTextInputFormatter(16),
+                  LengthLimitingTextInputFormatter(64),
                 ],
                 onSubmitted: (_) => _submit(),
-                helperText: FeatureFlags.demoMode
-                    ? 'Demo codes: ${DemoCoupons.percentOff.keys.join(', ')}'
-                    : null,
               ),
             ),
             SizedBox(width: AppSpacing.x3.w),
@@ -134,6 +140,7 @@ class _CouponFieldState extends State<CouponField> {
                 label: 'Apply',
                 variant: AppButtonVariant.secondary,
                 disabled: !widget.enabled,
+                loading: widget.checking,
                 semanticLabel: 'Apply coupon code',
                 onPressed: _submit,
               ),
@@ -173,7 +180,7 @@ class _CouponFieldState extends State<CouponField> {
               ),
               SizedBox(height: 2.h),
               Text(
-                '${widget.discount.format()} off the consultation fee',
+                '${Money.inr(widget.discountPaise)} off',
                 style: AppText.poppins(
                   size: AppFontSize.xs,
                   color: AppColors.textMuted,

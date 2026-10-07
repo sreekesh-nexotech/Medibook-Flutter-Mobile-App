@@ -44,9 +44,16 @@ class ToastHost extends ConsumerWidget {
                   liveRegion: true,
                   container: true,
                   label: toast.text,
-                  child: _ToastPill(
-                    key: ValueKey(toast.tick),
-                    text: toast.text,
+                  // The host sits above every Scaffold, so nothing here
+                  // supplies a text style. Without this Material the pill's
+                  // text falls back to Flutter's "no style" look — a yellow
+                  // double underline.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: _ToastPill(
+                      key: ValueKey(toast.tick),
+                      text: toast.text,
+                    ),
                   ),
                 ),
               ),

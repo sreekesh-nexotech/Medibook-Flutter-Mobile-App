@@ -6,8 +6,8 @@ import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/widgets/app_icon.dart';
+import '../../domain/entities/appointment.dart';
 import '../../domain/entities/appointment_filter.dart';
-import '../../domain/entities/appointment_status_view.dart';
 
 /// The active-filter chip row shown above the appointments list (CM-28).
 ///
@@ -32,10 +32,7 @@ class AppointmentFilterChipsRow extends StatelessWidget {
   final List<AppointmentFilterChip> chips;
 
   /// Remove one facet. For a status chip, `status` is the one status to drop.
-  final void Function(
-    AppointmentFilterField field, {
-    AppointmentStatusView? status,
-  })
+  final void Function(AppointmentFilterField field, {AppointmentStatus? status})
   onRemove;
 
   final VoidCallback onClearAll;
@@ -111,7 +108,7 @@ class _RemovableChip extends StatelessWidget {
                     ),
                   ),
                   SizedBox(width: 6.w),
-                  AppIcon(MedIcon.close, size: 12, color: AppColors.brand),
+                  AppIcon(PhIcon.x, size: 12, color: AppColors.brand),
                 ],
               ),
             ),

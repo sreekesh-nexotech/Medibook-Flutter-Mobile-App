@@ -6,46 +6,61 @@ import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_stub_notice.dart';
 
-/// The token card a patient shows at the desk, and the two controls the audit
-/// asked for around it (CM-15, CM-27).
+/// The token card a patient shows at the desk, and the two controls around
+/// it (CM-15, CM-27).
 ///
-/// The finding was that there is *"no control to save or download a token card
-/// and no add-to-calendar control"*. Both are here, and both are **honestly
-/// stubbed**: this build has no file-save, share or calendar package and none
-/// may be added, so each is an `AppButton(stubbed: true)` that says so via
-/// [showStubbedToast] rather than flashing a success toast for a file that was
-/// never written (THE LAW).
-///
-/// What the card itself does is real: the booking reference and the token are
-/// both on it, labelled for what they are — the reference is permanent and is
-/// what appointment search matches (CM-14, CM-30), the token is the queue
-/// position for one day.
+/// Every value is a string the backend issued (§10.4) — the booking
+/// reference, the token label, the hospital-local date and time. The QR
+/// payload is shown as text: no QR or image-saving package is in this build,
+/// so "Save token card" stays honestly stubbed rather than flashing a success
+/// for a file that was never written. "Add to calendar" is the caller's
+/// [onAddToCalendar] (the backend's `calendar.ics`, §10.10); without one the
+/// control is not shown.
 class TokenActionsCard extends ConsumerWidget {
   const TokenActionsCard({
     super.key,
     required this.token,
     required this.bookingRef,
-    required this.scheduledAt,
+    required this.dateLabel,
+    required this.whenLabel,
     required this.doctorName,
     required this.hospitalName,
+    this.patientName,
+    this.qrPayload,
+    this.onAddToCalendar,
+    this.calendarBusy = false,
     this.onViewQueue,
   });
 
-  /// `T-026` — the day's queue position.
+  /// `T-026` — the day's queue position, as issued.
   final String token;
 
   /// `MB-2026-000125` — the permanent identifier.
   final String bookingRef;
 
-  final DateTime scheduledAt;
+  /// The date chip ("2026-10-01" as the backend states it).
+  final String dateLabel;
+
+  /// "2026-10-01 · 09:00 – 09:15 · Morning".
+  final String whenLabel;
   final String doctorName;
   final String hospitalName;
+  final String? patientName;
+
+  /// The string a QR would encode (§10.4 `qr_payload`).
+  final String? qrPayload;
+
+  /// Downloads the appointment's `.ics` and hands it to the calendar app
+  /// (§10.10). Null hides the control.
+  final VoidCallback? onAddToCalendar;
+
+  /// True while the `.ics` is being fetched.
+  final bool calendarBusy;
 
   /// Opens live token progress (CM-09/CM-24). Null hides the control.
   final VoidCallback? onViewQueue;
@@ -94,7 +109,7 @@ class TokenActionsCard extends ConsumerWidget {
                   borderRadius: AppRadii.pill,
                 ),
                 child: Text(
-                  AppDates.dayMonth(scheduledAt),
+                  dateLabel,
                   style: AppText.poppins(
                     size: AppFontSize.xs,
                     weight: AppText.semibold,
@@ -108,9 +123,13 @@ class TokenActionsCard extends ConsumerWidget {
           Container(height: 1.h, color: AppColors.borderSubtle),
           SizedBox(height: AppSpacing.x3.h),
           _Row(label: 'Booking reference', value: bookingRef, strong: true),
+          if (patientName != null && patientName!.isNotEmpty)
+            _Row(label: 'Patient', value: patientName!),
           _Row(label: 'Doctor', value: doctorName),
           _Row(label: 'Where', value: hospitalName),
-          _Row(label: 'When', value: AppDates.dayAndTime(scheduledAt)),
+          _Row(label: 'When', value: whenLabel),
+          if (qrPayload != null && qrPayload!.isNotEmpty)
+            _Row(label: 'Desk code', value: qrPayload!),
           SizedBox(height: AppSpacing.x2.h),
           Text(
             'Quote the booking reference to support — the token is only '
@@ -136,18 +155,16 @@ class TokenActionsCard extends ConsumerWidget {
                 onPressed: () =>
                     showStubbedToast(context, ref, 'Saving the token card'),
               ),
-              AppButton(
-                label: 'Add to calendar',
-                variant: AppButtonVariant.secondary,
-                size: AppButtonSize.sm,
-                leadingIcon: MedIcon.calendar,
-                stubbed: true,
-                semanticLabel:
-                    'Add this appointment to your calendar on '
-                    '${AppDates.dayMonthYear(scheduledAt)}',
-                onPressed: () =>
-                    showStubbedToast(context, ref, 'Adding to your calendar'),
-              ),
+              if (onAddToCalendar != null)
+                AppButton(
+                  label: 'Add to calendar',
+                  variant: AppButtonVariant.secondary,
+                  size: AppButtonSize.sm,
+                  leadingIcon: MedIcon.calendar,
+                  loading: calendarBusy,
+                  semanticLabel: 'Add this appointment to your calendar',
+                  onPressed: onAddToCalendar,
+                ),
               if (onViewQueue != null)
                 AppButton(
                   label: 'Live queue',

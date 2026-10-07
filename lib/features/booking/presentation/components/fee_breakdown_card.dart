@@ -4,31 +4,71 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/fee_breakdown.dart';
+import '../../../../core/utils/money.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../domain/entities/booked_appointment.dart';
+import '../../domain/entities/fee_quote.dart';
 
-/// The itemised cost of a booking (CM-13, CM-19), used by the booking summary
-/// and the payment order summary.
+/// One row of a fee card: a label and an amount in paise. A discount is a
+/// negative amount and renders in success green.
+class FeeRowData {
+  const FeeRowData({required this.label, required this.amountPaise, this.note});
+
+  final String label;
+  final int amountPaise;
+
+  /// A quiet line under the label ("GST 18% · ₹4").
+  final String? note;
+
+  bool get isDiscount => amountPaise < 0;
+
+  /// The ready-to-render rows of a fee quote (§8.3 `lines[]`) — rendered as
+  /// the backend priced them, never recomputed.
+  static List<FeeRowData> fromQuote(FeeQuote quote) => [
+    for (final line in quote.lines)
+      FeeRowData(
+        label: line.description,
+        amountPaise: line.amountPaise,
+        note: line.taxPaise == 0
+            ? null
+            : '${line.taxLabel} · ${Money.inr(line.taxPaise)}'
+                  '${line.taxInclusive ? ' included' : ' added'}',
+      ),
+    if (quote.taxPaise > 0)
+      FeeRowData(label: 'Taxes', amountPaise: quote.taxPaise),
+  ];
+
+  /// The fee snapshot on a booked appointment (§10) — the final figures.
+  static List<FeeRowData> fromAppointment(BookedAppointment a) => [
+    FeeRowData(label: 'Consultation', amountPaise: a.consultationFeePaise),
+    if (a.serviceFeePaise > 0)
+      FeeRowData(label: 'Service', amountPaise: a.serviceFeePaise),
+    if (a.discountPaise > 0)
+      FeeRowData(label: 'Discount', amountPaise: -a.discountPaise),
+    if (a.convenienceFeePaise > 0)
+      FeeRowData(label: 'Convenience fee', amountPaise: a.convenienceFeePaise),
+    if (a.taxPaise > 0) FeeRowData(label: 'Taxes', amountPaise: a.taxPaise),
+  ];
+}
+
+/// The itemised cost of a booking (CM-13, CM-19), used by the booking
+/// summary and the payment order summary.
 ///
-/// The audit's complaint: *"the summary shows a single consultation fee. Taxes,
-/// convenience fee, coupon entry and a total have no row."* Every line here
-/// comes from [FeeBreakdown.lines], which is computed from [Money] integers —
-/// so the total on screen is arithmetic over the rows above it and cannot
-/// drift from them (audit §3.8.2). This widget never does sums; it renders the
-/// ones the model guarantees.
-///
-/// A discount row renders negative and in success green, because a number that
-/// reduces the total should not look like one that raises it.
+/// Every row comes from the backend — a fee quote's `lines[]` or the
+/// appointment's fee snapshot. This widget never does sums (§8.3: "do not
+/// compute fees in the app"); [totalPaise] is the backend's figure.
 class FeeBreakdownCard extends StatelessWidget {
   const FeeBreakdownCard({
     super.key,
-    required this.fee,
+    required this.rows,
+    required this.totalPaise,
     this.title,
     this.footnote,
     this.shadow = AppShadowToken.sm,
   });
 
-  final FeeBreakdown fee;
+  final List<FeeRowData> rows;
+  final int totalPaise;
 
   /// Optional heading above the rows ("Payment summary").
   final String? title;
@@ -59,11 +99,14 @@ class FeeBreakdownCard extends StatelessWidget {
             ),
             SizedBox(height: AppSpacing.x3.h),
           ],
-          for (final line in fee.lines)
+          for (final row in rows)
             _FeeRow(
-              label: line.label,
-              value: line.amount.format(),
-              valueColor: line.isDiscount
+              label: row.label,
+              note: row.note,
+              value: row.isDiscount
+                  ? '− ${Money.inr(-row.amountPaise)}'
+                  : Money.inr(row.amountPaise),
+              valueColor: row.isDiscount
                   ? AppColors.successText
                   : AppColors.textPrimary,
             ),
@@ -73,7 +116,7 @@ class FeeBreakdownCard extends StatelessWidget {
           ),
           _FeeRow(
             label: 'Total Payable',
-            value: fee.total.format(),
+            value: Money.inr(totalPaise),
             labelColor: AppColors.textStrong,
             labelWeight: AppText.semibold,
             valueColor: AppColors.textStrong,
@@ -103,6 +146,7 @@ class _FeeRow extends StatelessWidget {
   const _FeeRow({
     required this.label,
     required this.value,
+    this.note,
     this.labelColor = AppColors.textMuted,
     this.labelWeight = AppText.regular,
     this.valueColor = AppColors.textPrimary,
@@ -112,6 +156,7 @@ class _FeeRow extends StatelessWidget {
 
   final String label;
   final String value;
+  final String? note;
   final Color labelColor;
   final FontWeight labelWeight;
   final Color valueColor;
@@ -126,13 +171,27 @@ class _FeeRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Text(
-              label,
-              style: AppText.poppins(
-                size: AppFontSize.base,
-                weight: labelWeight,
-                color: labelColor,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: AppText.poppins(
+                    size: AppFontSize.base,
+                    weight: labelWeight,
+                    color: labelColor,
+                  ),
+                ),
+                if (note != null)
+                  Text(
+                    note!,
+                    style: AppText.poppins(
+                      size: AppFontSize.xxs,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+              ],
             ),
           ),
           SizedBox(width: AppSpacing.x3.w),

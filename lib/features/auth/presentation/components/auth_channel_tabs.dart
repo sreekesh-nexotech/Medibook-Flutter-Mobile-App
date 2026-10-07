@@ -4,7 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/widgets/app_segmented_tabs.dart';
-import '../controllers/auth_flow_draft.dart';
+import '../../application/providers/auth_flow_draft.dart';
 
 /// The Email / Mobile switch at the top of the sign-in (CM-04) and reset
 /// (CM-06) forms.

@@ -19,7 +19,7 @@ import '../app_icon.dart';
 ///
 /// ```dart
 /// AppEmptyView(
-///   iconName: MedIcon.calendar,
+///   iconName: PhIcon.calendarBlank,
 ///   headline: 'No upcoming appointments',
 ///   body: 'Book a consultation and it will show up here.',
 ///   actionLabel: 'Book an Appointment',

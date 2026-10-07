@@ -30,6 +30,8 @@ class SupportContactTile extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.actionSemanticLabel,
+    this.onOpen,
+    this.openSemanticLabel,
   });
 
   /// A [MedIcon] name.
@@ -49,6 +51,14 @@ class SupportContactTile extends StatelessWidget {
   /// What a screen reader announces for the action ("Copy the support email
   /// address"), because "Copy" on its own does not say copy *what*.
   final String? actionSemanticLabel;
+
+  /// Tapping [value] hands it to the OS — the dialler for a number, the mail
+  /// app for an address (CL SUP-004: the number looked like a link and did
+  /// nothing). Null leaves the value as plain selectable text.
+  final VoidCallback? onOpen;
+
+  /// What a screen reader announces for [onOpen] ("Call support").
+  final String? openSemanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -81,14 +91,37 @@ class SupportContactTile extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: 2.h),
-                SelectableText(
-                  value,
-                  style: AppText.inter(
-                    size: AppFontSize.sm,
-                    weight: AppText.medium,
-                    color: AppColors.textLink,
+                if (onOpen == null)
+                  SelectableText(
+                    value,
+                    style: AppText.inter(
+                      size: AppFontSize.sm,
+                      weight: AppText.medium,
+                      color: AppColors.textLink,
+                    ),
+                  )
+                else
+                  Semantics(
+                    button: true,
+                    label: '${openSemanticLabel ?? title}, $value',
+                    child: ExcludeSemantics(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onOpen,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4.h),
+                          child: Text(
+                            value,
+                            style: AppText.inter(
+                              size: AppFontSize.sm,
+                              weight: AppText.medium,
+                              color: AppColors.textLink,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
                 SizedBox(height: 4.h),
                 Text(
                   description,

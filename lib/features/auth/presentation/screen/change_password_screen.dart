@@ -15,7 +15,7 @@ import '../components/auth_fields.dart';
 import '../components/field_focus_group.dart';
 import '../components/new_password_fields.dart';
 import '../components/screen_fade_rise.dart';
-import '../controllers/change_password_form_controller.dart';
+import '../../application/providers/change_password_form_controller.dart';
 
 /// Change Password (`/change-password`) — CM-51.
 ///

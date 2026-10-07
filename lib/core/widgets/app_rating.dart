@@ -39,10 +39,17 @@ class AppRating extends StatelessWidget {
         color: filled ? AppColors.warning : AppColors.grey200,
       );
       if (onRate != null) {
-        star = GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => onRate!(i + 1),
-          child: star,
+        // Each star is its own labelled button: a bare glyph is invisible to
+        // a screen reader, and the rating could not be given without sight.
+        star = Semantics(
+          button: true,
+          selected: filled,
+          label: '${i + 1} of $max stars',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onRate!(i + 1),
+            child: ExcludeSemantics(child: star),
+          ),
         );
       }
       children.add(star);

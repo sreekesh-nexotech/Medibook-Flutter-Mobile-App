@@ -1,3 +1,5 @@
+import 'dart:io' show InternetAddress;
+
 import '../../core/utils/logger.dart';
 import '../config/env.dart';
 import '../config/feature_flags.dart';
@@ -51,6 +53,17 @@ class EnvValidation {
 abstract final class EnvLoader {
   EnvLoader._();
 
+  /// Why [apiBaseUrl] cannot serve a production build, or null. A bare IP
+  /// address is the integration server (the default when no URL is passed,
+  /// KB-07); a production host has a name its certificate is issued for.
+  static String? productionHostProblem(String apiBaseUrl) {
+    final host = Uri.tryParse(apiBaseUrl)?.host ?? '';
+    if (InternetAddress.tryParse(host) == null) return null;
+    return '${Env.apiBaseUrlDefine} points at an IP address ($host) — the '
+        'integration server, not production. Pass '
+        '--dart-define=${Env.apiBaseUrlDefine}=https://<production host>.';
+  }
+
   /// Validate the current configuration without throwing.
   static EnvValidation validate() {
     final errors = <String>[];
@@ -75,6 +88,10 @@ abstract final class EnvLoader {
           'already start with one, so requests will contain "//".',
         );
       }
+      final hostProblem = Env.isProd
+          ? productionHostProblem(Env.apiBaseUrl)
+          : null;
+      if (hostProblem != null) errors.add(hostProblem);
       if (!Env.isSecureTransport) {
         final message =
             '${Env.apiBaseUrlDefine} is not HTTPS. Coding Standards §9 '
@@ -105,6 +122,19 @@ abstract final class EnvLoader {
         'Demo mode is ON in a production build. Pass '
         '--dart-define=${Env.demoDefine}=false. Demo mode prefills real-looking '
         'credentials and shows the OTP hint.',
+      );
+    }
+
+    // ---- TLS ----
+    if (Env.isProd && Env.allowBadCertificate) {
+      errors.add(
+        'Certificate validation is disabled in a production build. Pass '
+        '--dart-define=${Env.allowBadCertDefine}=false.',
+      );
+    } else if (Env.allowBadCertificate) {
+      warnings.add(
+        '${Env.allowBadCertDefine} is on — the API certificate is not '
+        'verified. Fine for the self-signed integration server only.',
       );
     }
 

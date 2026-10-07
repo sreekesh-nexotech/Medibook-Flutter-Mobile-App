@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../app/config/constants.dart';
@@ -7,6 +10,7 @@ import '../../app/theme/colors.dart';
 import '../../app/theme/theme.dart';
 import '../../app/theme/typography.dart';
 import '../widgets/app_button.dart';
+import '../network/connectivity/connectivity_monitor.dart';
 import '../widgets/app_icon.dart';
 import 'failure.dart';
 
@@ -33,7 +37,7 @@ class AppErrorView extends StatelessWidget {
     required this.failure,
     this.onRetry,
     this.headline,
-    this.iconName = MedIcon.closeCircle,
+    this.iconName = PhIcon.xCircle,
     this.retryLabel,
     this.secondaryLabel,
     this.onSecondary,
@@ -71,6 +75,7 @@ class AppErrorView extends StatelessWidget {
   String _headline(BuildContext context) {
     if (headline != null) return headline!;
     return switch (failure) {
+      NetworkFailure(isUnreachable: true) => "Can't reach Medibook",
       NetworkFailure() => context.l10n.offlineTitle,
       NotFoundFailure() => context.l10n.pageNotFoundTitle,
       _ => context.l10n.somethingWentWrong,
@@ -79,6 +84,14 @@ class AppErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return RetryOnReconnect(
+      failure: failure,
+      onRetry: showsRetry ? onRetry : null,
+      child: _buildView(context),
+    );
+  }
+
+  Widget _buildView(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
         padding:
@@ -149,7 +162,7 @@ class AppInlineError extends StatelessWidget {
     required this.failure,
     this.onRetry,
     this.retryLabel,
-    this.iconName = MedIcon.closeCircle,
+    this.iconName = PhIcon.xCircle,
     this.margin,
   });
 
@@ -166,6 +179,14 @@ class AppInlineError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return RetryOnReconnect(
+      failure: failure,
+      onRetry: showsRetry ? onRetry : null,
+      child: _buildView(context),
+    );
+  }
+
+  Widget _buildView(BuildContext context) {
     return Container(
       margin: margin,
       padding: EdgeInsets.symmetric(
@@ -228,7 +249,7 @@ class AppErrorBanner extends StatelessWidget {
     required this.message,
     this.onTap,
     this.tone = AppBannerTone.warning,
-    this.iconName = MedIcon.clock,
+    this.iconName = PhIcon.clock,
   });
 
   final String message;
@@ -275,10 +296,11 @@ class AppErrorBanner extends StatelessWidget {
     );
 
     if (onTap == null) return Semantics(liveRegion: true, child: content);
+    // No `label` here: the text inside already supplies it, and giving both
+    // made a screen reader say the sentence twice.
     return Semantics(
       liveRegion: true,
       button: true,
-      label: message,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
@@ -348,3 +370,74 @@ class AppStateGlyph extends StatelessWidget {
 
 /// Public tone for [AppStateGlyph].
 enum AppStateGlyphTone { brand, danger, neutral }
+
+/// Presses Try Again by itself when the connection comes back (offline
+/// audit, 6 Oct 2026): an error view that failed because the phone was
+/// offline reloads as soon as it is online again, instead of waiting for a
+/// tap. Only for connection failures, and only when the screen gave a retry.
+///
+/// Reads the connectivity monitor through the nearest `ProviderScope`; with
+/// none (a bare widget test) it does nothing.
+class RetryOnReconnect extends StatefulWidget {
+  const RetryOnReconnect({
+    super.key,
+    required this.failure,
+    required this.onRetry,
+    required this.child,
+  });
+
+  final Failure failure;
+  final VoidCallback? onRetry;
+  final Widget child;
+
+  @override
+  State<RetryOnReconnect> createState() => _RetryOnReconnectState();
+}
+
+class _RetryOnReconnectState extends State<RetryOnReconnect> {
+  StreamSubscription<void>? _sub;
+
+  bool get _wanted =>
+      widget.onRetry != null &&
+      (widget.failure is NetworkFailure || widget.failure is TimeoutFailure);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _listen();
+  }
+
+  @override
+  void didUpdateWidget(RetryOnReconnect oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_wanted) {
+      _sub?.cancel();
+      _sub = null;
+    } else {
+      _listen();
+    }
+  }
+
+  void _listen() {
+    if (_sub != null || !_wanted) return;
+    try {
+      final container = ProviderScope.containerOf(context, listen: false);
+      _sub = container.read(connectivityMonitorProvider).onReconnect.listen((
+        _,
+      ) {
+        if (mounted) widget.onRetry?.call();
+      });
+    } on StateError {
+      // No ProviderScope above (a bare widget test): nothing to listen to.
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}

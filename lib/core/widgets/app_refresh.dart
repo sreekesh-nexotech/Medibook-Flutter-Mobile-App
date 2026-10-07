@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../app/theme/colors.dart';
+import '../network/connectivity/connectivity_monitor.dart';
+import 'route_arrival.dart';
+import 'toast/toast_controller.dart';
 
 /// Brand-coloured pull-to-refresh (audit §3.9.4 — none of the three scrolling
 /// feeds could be refreshed by pulling, which is the gesture every patient will
@@ -42,6 +46,7 @@ class AppRefreshIndicator extends StatelessWidget {
     this.displacement,
     this.semanticsLabel = 'Refresh',
     this.edgeOffset = 0,
+    this.refreshOnArrival = true,
   });
 
   /// Runs the reload. The indicator shows until the future completes.
@@ -60,10 +65,50 @@ class AppRefreshIndicator extends StatelessWidget {
   /// Offset for a scrollable that starts below a pinned header.
   final double edgeOffset;
 
+  /// Also run [onRefresh] (silently, without the spinner) each time this
+  /// screen is navigated back to, so it shows the latest data without the
+  /// patient having to pull. See [RouteArrival].
+  final bool refreshOnArrival;
+
+  /// What a pull says while the phone is offline (offline audit, 6 Oct).
+  static const String offlineMessage =
+      "You're offline — pull down again when you're back online.";
+
   @override
   Widget build(BuildContext context) {
+    final indicator = _indicator(() => _pull(context));
+    return refreshOnArrival
+        ? RouteArrival(onArrive: _refreshQuietly, child: indicator)
+        : indicator;
+  }
+
+  /// The arrival re-read. A failure is the screen's own state to show (its
+  /// error view or stale bar); nobody is awaiting this future, so it must not
+  /// escape as an unhandled error.
+  void _refreshQuietly() {
+    onRefresh().then<void>((_) {}, onError: (Object _) {});
+  }
+
+  /// A pull: offline it says so at once (the spinner used to turn and then
+  /// do nothing); online it runs [onRefresh].
+  Future<void> _pull(BuildContext context) async {
+    ProviderContainer? container;
+    try {
+      container = ProviderScope.containerOf(context, listen: false);
+    } on StateError {
+      container = null;
+    }
+    if (container != null &&
+        !container.read(connectivityMonitorProvider).isOnline) {
+      container.read(toastControllerProvider.notifier).show(offlineMessage);
+      return;
+    }
+    await onRefresh();
+  }
+
+  Widget _indicator(Future<void> Function() onPull) {
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: onPull,
       color: AppColors.brand,
       backgroundColor: AppColors.surface,
       strokeWidth: 2.5.w,

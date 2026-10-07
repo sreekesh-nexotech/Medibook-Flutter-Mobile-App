@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import 'package:medibook/app/di/dependencies.dart';
 import 'package:medibook/app/config/constants.dart';
 import 'package:medibook/app/theme/theme.dart';
 
@@ -25,7 +26,8 @@ Widget harness(
   Color background = const Color(0xFFF3F3F3),
 }) {
   return ProviderScope(
-    overrides: overrides,
+    // The app's wiring first; a test's own overrides replace any of it.
+    overrides: [...appDependencies(), ...overrides],
     child: ScreenUtilInit(
       designSize: AppConstants.designSize,
       minTextAdapt: true,
@@ -35,7 +37,9 @@ Widget harness(
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           builder: (context, widget) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.noScaling),
             child: widget!,
           ),
           home: Scaffold(
@@ -51,7 +55,8 @@ Widget harness(
 /// Pumps a full screen (already a routed page) at the device [surface] size.
 Widget screenHarness(Widget screen, {List<Override> overrides = const []}) {
   return ProviderScope(
-    overrides: overrides,
+    // The app's wiring first; a test's own overrides replace any of it.
+    overrides: [...appDependencies(), ...overrides],
     child: ScreenUtilInit(
       designSize: AppConstants.designSize,
       minTextAdapt: true,
@@ -60,7 +65,9 @@ Widget screenHarness(Widget screen, {List<Override> overrides = const []}) {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         builder: (context, widget) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.noScaling),
           child: widget!,
         ),
         home: screen,

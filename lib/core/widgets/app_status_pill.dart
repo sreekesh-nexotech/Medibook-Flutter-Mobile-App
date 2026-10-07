@@ -6,7 +6,7 @@ import '../../app/theme/typography.dart';
 import 'status_style.dart';
 
 /// The compact appointment status / token pill. Colors come from
-/// [AppStatusStyle] (e.g. `AppStatusStyle.appointment(status)` or
+/// [AppStatusStyle] (e.g. `AppStatusStyle.completed` or
 /// `AppStatusStyle.token`). Pill, `--fs-xxs`/semibold, padding `4x10`.
 class AppStatusPill extends StatelessWidget {
   const AppStatusPill({super.key, required this.label, required this.colors});
@@ -19,17 +19,21 @@ class AppStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 4.h, horizontal: 10.w),
+      // The DS `Badge`: `padding 6px 14px`, `fs-sm` / medium, line-height 1.
+      padding: EdgeInsets.symmetric(vertical: 6.h, horizontal: 14.w),
       decoration: BoxDecoration(
         color: colors.background,
         borderRadius: AppRadii.pill,
       ),
       child: Text(
         label,
+        maxLines: 1,
+        softWrap: false,
         style: AppText.poppins(
-          size: AppFontSize.xxs,
-          weight: AppText.semibold,
+          size: AppFontSize.sm,
+          weight: AppText.medium,
           color: colors.foreground,
+          height: 1,
         ),
       ),
     );

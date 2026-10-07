@@ -25,6 +25,14 @@ abstract final class AppRoutes {
   /// returning user never flashes the sign-in screen before landing on Home.
   static const String splash = '/splash';
 
+  // ---- Onboarding (first run only) ----
+
+  /// The two intro slides. Shown once per device, before sign-in.
+  static const String onboarding = '/onboarding';
+
+  /// Terms acceptance + the optional offers opt-in — hands off to [login].
+  static const String onboardingConsent = '/onboarding/consent';
+
   // ---- Auth ----
   static const String login = '/login';
   static const String signup = '/signup';
@@ -69,9 +77,9 @@ abstract final class AppRoutes {
   static const String appointmentDetail = '/appointment';
   static String appointmentDetailPath(String id) => '/appointment/$id';
 
-  /// Reschedule. `/reschedule/:id`.
-  static const String reschedule = '/reschedule';
-  static String reschedulePath(String id) => '/reschedule/$id';
+  // Reschedule was removed in v2 (`FLUTTER_API_INTEGRATION.md` §10.2: there
+  // is no reschedule — the backend offers Cancel + Book again). The old
+  // `/reschedule/:id` deep link now opens the appointment detail.
 
   /// Build a booking entry path from typed params.
   static String bookingPath({
@@ -91,7 +99,13 @@ abstract final class AppRoutes {
   /// Terms / Privacy / Guidelines. `/legal/:slug`, slug ∈
   /// [legalTerms] | [legalPrivacy] | [legalGuidelines].
   static const String legal = '/legal';
-  static String legalPath(String slug) => '$legal/$slug';
+  static String legalPath(String slug, {String? from}) =>
+      from == null ? '$legal/$slug' : '$legal/$slug?from=$from';
+
+  /// `?from=` values the consent and sign-up screens pass, so the policy page
+  /// can label its footer button "Back to sign up".
+  static const String legalFromOnboarding = 'onboarding';
+  static const String legalFromSignup = 'signup';
 
   static const String legalTerms = 'terms';
   static const String legalPrivacy = 'privacy';
@@ -108,11 +122,26 @@ abstract final class AppRoutes {
   static const String faq = '/faq';
   static const String support = '/support';
 
+  /// The user's support requests (§13). `/support/tickets` lists them;
+  /// `/support/tickets/:id` opens one thread.
+  static const String supportTickets = '/support/tickets';
+  static String supportTicketPath(String id) => '$supportTickets/$id';
+
   // ---- Profile & account (CM-47 … CM-51) ----
   static const String profileEdit = '/profile/edit';
   static const String profilePassword = '/profile/password';
   static const String profileAddress = '/profile/address';
   static const String profileEmergency = '/profile/emergency';
+
+  /// Change the sign-in mobile number: the three-step OTP flow (§5.3).
+  static const String profilePhone = '/profile/phone';
+
+  /// Active sessions on this account, with revoke and "log out everywhere"
+  /// (§4.9).
+  static const String profileSessions = '/profile/sessions';
+
+  /// "Download my data": the patient's personal-data export requests (§5.7).
+  static const String profileDataExport = '/profile/data-export';
 
   /// Family members list (CM-16, CM-48).
   static const String dependants = '/dependants';
@@ -129,6 +158,9 @@ abstract final class AppRoutes {
 
   /// Policy detail. `/insurance/:id`.
   static String insurancePath(String id) => '$insurance/$id';
+
+  /// Edit a saved policy. `/insurance/:id/edit` (BL-INS-006).
+  static String insuranceEditPath(String id) => '$insurance/$id/edit';
 
   // ---- Documents (CM-32 … CM-36) ----
   static const String documentUpload = '/documents/upload';
@@ -173,9 +205,13 @@ abstract final class AppRoutes {
 
   // ---- Live queue (CM-09, CM-24) ----
 
-  /// Token progress. `/queue/:doctorId`.
+  /// Token progress. `/queue/:appointmentId`.
+  ///
+  /// The queue is per **appointment** (`FLUTTER_API_INTEGRATION.md` §10.5),
+  /// so the id here is the appointment's, not the doctor's. The signature
+  /// is unchanged; only the meaning of the argument moved.
   static const String queue = '/queue';
-  static String queuePath(String doctorId) => '$queue/$doctorId';
+  static String queuePath(String appointmentId) => '$queue/$appointmentId';
 
   // ---- Emergency (CM-44 … CM-46) ----
   static const String ambulance = '/ambulance';
@@ -193,6 +229,20 @@ abstract final class AppRoutes {
 
   /// The verified App Links / Universal Links host.
   static const String deepLinkHost = 'medibook.app';
+
+  /// The in-app path for a link the *server* hands us (a banner's
+  /// `cta_target`), or null. Only our own scheme and our own web host count:
+  /// [fromDeepLink] does not look at the host, so `https://elsewhere/home`
+  /// must not be read as Home.
+  static String? inAppPathFor(String target) {
+    final uri = Uri.tryParse(target.trim());
+    if (uri == null) return null;
+    final ours =
+        uri.scheme == deepLinkScheme ||
+        (uri.scheme == 'https' &&
+            (uri.host == deepLinkHost || uri.host == 'www.$deepLinkHost'));
+    return ours ? fromDeepLink(uri) : null;
+  }
 
   /// Maps an incoming deep link onto an in-app path, or null when it does not
   /// address a known screen.
@@ -220,6 +270,9 @@ abstract final class AppRoutes {
   ///   },
   /// );
   /// ```
+  /// What a link's id or slug may contain.
+  static final RegExp _safeSegment = RegExp(r'^[A-Za-z0-9_-]{1,200}$');
+
   static String? fromDeepLink(Uri uri) {
     final segments = _deepLinkSegments(uri);
     if (segments.isEmpty) return home;
@@ -227,10 +280,15 @@ abstract final class AppRoutes {
     final query = uri.query.isEmpty ? '' : '?${uri.query}';
     final first = segments.first;
     final second = segments.length > 1 ? segments[1] : null;
+    // An id or slug is plain text. Decoded '%2F' / '..' let
+    // medibook://appointment/..%2F..%2Fprofile walk to another screen
+    // (CL NAV-006); anything else is a not-found.
+    if (second != null && !_safeSegment.hasMatch(second)) return null;
 
     // Paths whose first segment is the whole route.
     const simple = <String, String>{
       'home': home,
+      'onboarding': onboarding,
       'login': login,
       'signup': signup,
       'appointments': appointments,
@@ -265,15 +323,25 @@ abstract final class AppRoutes {
       case 'receipt':
         return second == null ? appointments : '${receiptPath(second)}$query';
       case 'reschedule':
+        // Removed in v2: an old reschedule link lands on the appointment,
+        // which offers Cancel + Book again instead.
         return second == null
             ? appointments
-            : '${reschedulePath(second)}$query';
+            : '${appointmentDetailPath(second)}$query';
       case 'legal':
         // An unknown slug is a not-found, not a silent redirect to Terms.
         if (second == null) return legalPath(legalTerms);
         return legalSlugs.contains(second) ? legalPath(second) : null;
       case 'documents':
         return second == null ? documents : '${documentPath(second)}$query';
+      case 'support':
+        // A ticket thread: support/tickets/<id>.
+        if (second == 'tickets' && segments.length == 3) {
+          final id = segments[2];
+          return _safeSegment.hasMatch(id)
+              ? '${supportTicketPath(id)}$query'
+              : null;
+        }
       case 'insurance':
         if (second == null) return insurance;
         if (second == 'add') return insuranceAdd;
@@ -293,10 +361,15 @@ abstract final class AppRoutes {
 
   /// Nested paths a deep link may address directly.
   static const List<String> _knownNestedPaths = [
+    onboardingConsent,
     profileEdit,
     profilePassword,
     profileAddress,
     profileEmergency,
+    profilePhone,
+    profileSessions,
+    profileDataExport,
+    supportTickets,
     dependantEdit,
     insuranceAdd,
     documentUpload,

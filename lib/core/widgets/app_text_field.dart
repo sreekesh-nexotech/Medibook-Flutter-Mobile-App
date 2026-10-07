@@ -53,6 +53,7 @@ class AppTextField extends StatelessWidget {
     this.helperText,
     this.semanticLabel,
     this.showError = false,
+    this.autofocus = false,
   });
 
   final String? label;
@@ -66,6 +67,10 @@ class AppTextField extends StatelessWidget {
   /// Optional leading [MedIcon] name.
   final String? iconName;
   final bool obscureText;
+
+  /// Focus the field (and open the keyboard) when it first appears — for a
+  /// screen whose only job is typing, such as search.
+  final bool autofocus;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final FocusNode? focusNode;
@@ -120,6 +125,7 @@ class AppTextField extends StatelessWidget {
     final field = TextField(
       controller: controller,
       focusNode: focusNode,
+      autofocus: autofocus,
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       obscureText: obscureText,
@@ -197,6 +203,9 @@ class AppTextField extends StatelessWidget {
               ],
               Expanded(
                 child: Semantics(
+                  // Its own node, so the text-field flag cannot merge up into
+                  // a surrounding card (Screen Coverage pass, 7 Oct).
+                  container: true,
                   textField: true,
                   label: semanticLabel ?? label ?? hintText,
                   child: field,
@@ -210,9 +219,11 @@ class AppTextField extends StatelessWidget {
           SizedBox(height: 6.h),
           Text(
             errorText!,
+            // dangerText, not danger: small red text on white needs 4.5:1
+            // (danger is 3.9:1; CL UI-015). The red border stays danger.
             style: AppText.poppins(
               size: AppFontSize.xs,
-              color: AppColors.danger,
+              color: AppColors.dangerText,
             ),
           ),
         ] else if (helperText != null) ...[

@@ -2,105 +2,30 @@ import 'dart:async';
 
 import '../../core/error/failure.dart';
 import '../../core/storage/hive/boxes.dart';
+import '../../core/storage/hive_local_store.dart';
+import '../../core/storage/local_store.dart';
 import '../../core/utils/logger.dart';
+
+export '../../core/storage/local_store.dart';
 
 /// Opens and closes the app's local storage, and is the **only** place boxes
 /// are named at runtime.
 ///
 /// Coding Standards §3.1 asks for one central place to add or remove boxes
-/// safely; that is [HiveBoxes.all] plus this initialiser. Because `hive` and
-/// `hive_flutter` are not dependencies of this presentation-layer build (see
-/// `pubspec.yaml`), the concrete work lives behind [LocalStore] and the app
-/// currently runs on [InMemoryLocalStore]. When Hive lands, `HiveLocalStore`
-/// implements the same interface — registering adapters with the typeIds
-/// already allocated in [HiveTypeIds] — and this file's public surface does
-/// not change.
+/// safely; that is [HiveBoxes.all] plus this initialiser. The concrete store
+/// is [HiveLocalStore] (adapters registered before any box opens); tests
+/// swap in [InMemoryLocalStore] by assigning [store] before [open].
 ///
 /// Wired from `bootstrap()`:
 ///
 /// ```dart
 /// await HiveInit.open();
 /// ```
-abstract interface class LocalStore {
-  /// Open every box in [HiveBoxes.all] and register adapters.
-  Future<void> open();
-
-  /// Read a value from [box].
-  Object? read(String box, String key);
-
-  /// Write a value into [box]. Cache writes are fire-and-forget by design —
-  /// a failure must never block the UI (HIVE spec, Scenario 1).
-  Future<void> write(String box, String key, Object? value);
-
-  /// Delete one key.
-  Future<void> delete(String box, String key);
-
-  /// Empty one box.
-  Future<void> clearBox(String box);
-
-  /// Approximate on-disk size in bytes, for the LRU/size monitor
-  /// ([CacheConfig.hiveEvictionThreshold]).
-  Future<int> sizeInBytes();
-
-  /// Flush and release handles.
-  Future<void> close();
-}
-
-/// The default [LocalStore]: an in-process map.
-///
-/// Honest stand-in rather than a lie — it satisfies the contract, so caching
-/// code can be written and tested now, but nothing survives a restart, which
-/// means no code can come to depend on persistence that this build does not
-/// actually have.
-class InMemoryLocalStore implements LocalStore {
-  final Map<String, Map<String, Object?>> _boxes =
-      <String, Map<String, Object?>>{};
-
-  @override
-  Future<void> open() async {
-    for (final box in HiveBoxes.all) {
-      _boxes.putIfAbsent(box, () => <String, Object?>{});
-    }
-  }
-
-  Map<String, Object?> _box(String name) =>
-      _boxes.putIfAbsent(name, () => <String, Object?>{});
-
-  @override
-  Object? read(String box, String key) => _box(box)[key];
-
-  @override
-  Future<void> write(String box, String key, Object? value) async {
-    if (value == null) {
-      _box(box).remove(key);
-      return;
-    }
-    _box(box)[key] = value;
-  }
-
-  @override
-  Future<void> delete(String box, String key) async => _box(box).remove(key);
-
-  @override
-  Future<void> clearBox(String box) async => _box(box).clear();
-
-  @override
-  Future<int> sizeInBytes() async {
-    // Entry count is the only honest proxy without a real encoder; the real
-    // implementation reports the box files' size.
-    return _boxes.values.fold<int>(0, (sum, box) => sum + box.length);
-  }
-
-  @override
-  Future<void> close() async => _boxes.clear();
-}
-
-/// Local-storage lifecycle.
 abstract final class HiveInit {
   HiveInit._();
 
-  /// The active store. Replace during bootstrap, before [open].
-  static LocalStore store = InMemoryLocalStore();
+  /// The active store. Replace before [open] (tests).
+  static LocalStore store = HiveLocalStore();
 
   static bool _opened = false;
 
@@ -111,9 +36,10 @@ abstract final class HiveInit {
   ///
   /// Never throws: local storage is a cache, and an app that refuses to start
   /// because a cache would not open is worse than one that runs without it
-  /// (HIVE spec, Scenario 9 — "disable Hive, show warning"). The failure is
-  /// logged and returned as a [CacheFailure] for the caller to surface if it
-  /// wants to.
+  /// (HIVE spec, Scenario 9 — "disable Hive, show warning"). On failure the
+  /// app falls back to an [InMemoryLocalStore] so every read/write still has
+  /// somewhere to go, and the [CacheFailure] is returned for the caller to
+  /// surface.
   static Future<CacheFailure?> open() async {
     if (_opened) return null;
     try {
@@ -126,11 +52,14 @@ abstract final class HiveInit {
       return null;
     } catch (error, stackTrace) {
       AppLogger.error(
-        'Local storage failed to open — running network-only',
+        'Local storage failed to open — running in-memory only',
         name: 'storage',
         error: error,
         stackTrace: stackTrace,
       );
+      store = InMemoryLocalStore();
+      await store.open();
+      _opened = true;
       return CacheFailure(
         userMessage:
             'Offline data is unavailable on this device. The app will '

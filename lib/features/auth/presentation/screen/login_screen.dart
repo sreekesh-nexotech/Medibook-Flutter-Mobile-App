@@ -3,17 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../app/config/constants.dart';
 import '../../../../app/config/feature_flags.dart';
 import '../../../../app/router/app_routes.dart';
+import '../../../../app/router/guards/pending_link.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
 import '../../../../core/error/error_view.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/network/network_exceptions.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_checkbox.dart';
+import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_phone_field.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../application/providers/auth_provider.dart';
 import '../components/auth_channel_tabs.dart';
 import '../components/auth_fields.dart';
@@ -21,11 +23,10 @@ import '../components/auth_logo.dart';
 import '../components/field_focus_group.dart';
 import '../components/lockout_notice.dart';
 import '../components/screen_fade_rise.dart';
-import '../components/social_row.dart';
-import '../controllers/auth_flow_draft.dart';
-import '../controllers/auth_form_controller.dart';
-import '../controllers/login_form_controller.dart';
-import '../controllers/verify_request.dart';
+import '../../application/providers/auth_flow_draft.dart';
+import '../../application/providers/auth_form_controller.dart';
+import '../../application/providers/login_form_controller.dart';
+import '../../application/providers/verify_request.dart';
 
 /// Sign in (`/login`) — the app's start screen.
 ///
@@ -63,7 +64,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   late final TextEditingController _password;
   final TextEditingController _phone = TextEditingController();
 
-  CountryCode _country = CountryCodes.india;
+  /// Fixed: the server accepts only Indian mobiles here (§2, BL-AUTH-008).
+  static const CountryCode _country = CountryCodes.india;
   ResetChannel _channel = ResetChannel.email;
 
   late final Map<String, TextEditingController> _controllers = {
@@ -88,10 +90,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     // Demo affordance (gated): prefill so a reviewer can just tap Log In.
     _email = TextEditingController(
-      text: FeatureFlags.demoMode ? AppConstants.demoEmail : '',
+      text: FeatureFlags.demoMode ? DemoCredentials.email : '',
     );
     _password = TextEditingController(
-      text: FeatureFlags.demoMode ? AppConstants.demoPassword : '',
+      text: FeatureFlags.demoMode ? DemoCredentials.password : '',
     );
   }
 
@@ -104,8 +106,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  void _onFieldChanged(String field, String value) =>
-      _form.onChanged(field, value);
+  void _onFieldChanged(String field, String value) {
+    _form.onChanged(field, value);
+    // The lockout shown depends on which account is typed.
+    if (field != LoginFields.password) setState(() {});
+  }
 
   /// Switching credential clears the form: leaving the email tab's errors on
   /// screen while the mobile tab is showing would be nonsense.
@@ -114,11 +119,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _focus.unfocus();
     _form.reset();
     setState(() => _channel = channel);
-  }
-
-  void _onCountryChanged(CountryCode country) {
-    setState(() => _country = country);
-    _form.onChanged(LoginFields.phone, Validators.digitsOf(_phone.text));
   }
 
   Future<void> _submit() async {
@@ -138,11 +138,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
     final signedIn = await _form.signInWithPassword(
-      email: _email.text,
+      identifier: _email.text,
       password: _password.text,
     );
     if (!signedIn || !mounted) return;
-    context.go(AppRoutes.home);
+    // A link opened before signing in, else Home (CL NAV-005).
+    context.go(ref.read(pendingLinkProvider).take() ?? AppRoutes.home);
   }
 
   Future<void> _submitMobile() async {
@@ -150,13 +151,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_form.validateMobileForm(phone: digits)) return;
 
     final destination = '${_country.dialCode}$digits';
-    final sent = await _form.requestLoginCode(phoneE164: destination);
-    if (!sent || !mounted) return;
+    final challenge = await _form.requestLoginCode(phoneE164: destination);
+    if (challenge == null || !mounted) return;
     context.go(
       VerifyRequest(
         purpose: VerifyPurpose.mobileLogin,
         channel: ResetChannel.sms,
         destination: destination,
+        challengeId: challenge.challengeId,
+        codeLength: challenge.codeLength,
+        resendAfterSeconds: challenge.resendAfterSeconds,
+        expiresAt: challenge.expiresAt,
       ).path,
     );
   }
@@ -164,15 +169,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// No OAuth client is configured in this build, so the honest answer is to
   /// name the provider that is not wired up rather than land on Home as though
   /// a federated sign-in had succeeded.
-  void _onSocialTap(SocialProvider provider) =>
-      showStubbedToast(context, ref, provider.actionLabel);
-
   @override
   Widget build(BuildContext context) {
     final form = ref.watch(loginFormControllerProvider);
-    final auth = ref.watch(authProvider);
+    // The warning, the attempt count and the lockout belong to the account
+    // being typed — another account on this phone can still sign in
+    // (BL-AUTH-035).
+    final auth = ref.watch(authProvider).scopedTo(_identifier);
     final isLockedOut = auth.isLockedOut;
     final failure = form.failure;
+    // Why the last session ended, when it ended on its own (revoked from
+    // another device, expired, account blocked) — BL-AUTH-050. Gone once
+    // the patient tries to sign in.
+    final ended = ref.watch(authProvider.select((s) => s.failure));
+    final sessionEnded =
+        failure == null && ended is UnauthorizedFailure && ended.sessionExpired
+        ? ended
+        : null;
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -225,10 +238,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     AppInlineError(failure: failure),
                     SizedBox(height: 16.h),
                   ],
+                  if (sessionEnded != null) ...[
+                    Semantics(
+                      liveRegion: true,
+                      child: AppErrorBanner(
+                        message: sessionEndedMessage(sessionEnded),
+                        tone: AppBannerTone.info,
+                        iconName: PhIcon.warningCircleFill,
+                      ),
+                    ),
+                    SizedBox(height: 16.h),
+                  ],
                   if (_isMobile)
-                    ..._mobileFields(form, locked: form.isBusy || isLockedOut)
+                    ..._mobileFields(form, locked: form.isBusy)
                   else
-                    ..._emailFields(form, locked: form.isBusy || isLockedOut),
+                    ..._emailFields(
+                      form,
+                      locked: form.isBusy,
+                      passwordLocked: isLockedOut,
+                    ),
                   SizedBox(height: 16.h),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -268,10 +296,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         : null,
                     onPressed: _submit,
                   ),
-                  SizedBox(height: 22.h),
-                  const _OrDivider(),
-                  SizedBox(height: 22.h),
-                  SocialRow(onProviderTap: _onSocialTap),
                   SizedBox(height: 26.h),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -311,16 +335,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  List<Widget> _emailFields(AuthFormState form, {required bool locked}) {
+  /// What is typed in the account field, in either tab.
+  String get _identifier => _isMobile
+      ? '${_country.dialCode}${Validators.digitsOf(_phone.text)}'
+      : _email.text;
+
+  List<Widget> _emailFields(
+    AuthFormState form, {
+    required bool locked,
+    bool passwordLocked = false,
+  }) {
     return [
       AuthTextField(
         field: LoginFields.email,
-        label: 'Email',
+        label: 'Email or Mobile',
         controller: _email,
         state: form,
         focus: _focus,
         onChanged: _onFieldChanged,
-        hintText: 'Your Email',
+        hintText: 'you@example.com or +91…',
         keyboardType: TextInputType.emailAddress,
         autofillHints: const [AutofillHints.email, AutofillHints.username],
         enabled: !locked,
@@ -335,7 +368,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         focus: _focus,
         onChanged: _onFieldChanged,
         hintText: 'Password',
-        enabled: !locked,
+        enabled: !locked && !passwordLocked,
         onSubmit: _submit,
       ),
     ];
@@ -347,7 +380,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         field: LoginFields.phone,
         controller: _phone,
         countryCode: _country,
-        onCountryChanged: _onCountryChanged,
         state: form,
         focus: _focus,
         onChanged: _onFieldChanged,
@@ -401,30 +433,13 @@ class _TextLink extends StatelessWidget {
   }
 }
 
-/// The "OR" rule between Log In and the social row.
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final line = Expanded(
-      child: Container(height: 1.h, color: AppColors.border),
-    );
-    return Row(
-      children: [
-        line,
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12.w),
-          child: Text(
-            'OR',
-            style: AppText.poppins(
-              size: AppFontSize.sm,
-              color: AppColors.textMuted,
-            ),
-          ),
-        ),
-        line,
-      ],
-    );
-  }
-}
+/// The sign-in screen's line for a session that ended on its own.
+@visibleForTesting
+String sessionEndedMessage(UnauthorizedFailure failure) =>
+    switch (failure.apiCode) {
+      ApiErrorCodes.authSessionRevoked =>
+        'You were signed out because this session was ended — from another '
+            'device, or after a password change. Sign in again to continue.',
+      ApiErrorCodes.accountBlocked => failure.userMessage,
+      _ => 'Your session has expired. Sign in again to continue.',
+    };

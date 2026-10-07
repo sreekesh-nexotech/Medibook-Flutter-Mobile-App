@@ -15,6 +15,10 @@ import '../utils/motion.dart';
 ///
 /// Also announces itself properly: the row reports "Slide 2 of 3" rather than
 /// leaving a screen-reader user with three unlabelled shapes.
+///
+/// The defaults are the home banner's 7px dots. The onboarding intro uses the
+/// design's larger 8px dots with a 28px active pill and a full 44px tap
+/// target per dot, via [dotSize], [activeWidth] and [tapTargetWidth].
 class AppCarouselDots extends StatelessWidget {
   const AppCarouselDots({
     super.key,
@@ -23,10 +27,27 @@ class AppCarouselDots extends StatelessWidget {
     this.onDotTapped,
     this.activeColor,
     this.inactiveColor,
+    this.dotSize = 7,
+    this.activeWidth = 18,
+    this.tapTargetWidth,
+    this.gap = 0,
   });
 
   final int count;
   final int activeIndex;
+
+  /// Diameter of an inactive dot and height of the active pill (design px).
+  final double dotSize;
+
+  /// Width of the active pill (design px).
+  final double activeWidth;
+
+  /// Width of each dot's tap target (design px). Null keeps the banner's
+  /// packed layout, where the dots share one 44px-wide target.
+  final double? tapTargetWidth;
+
+  /// Space between tap targets (design px).
+  final double gap;
 
   /// Jump to a page. Null → the dots are display-only.
   final ValueChanged<int>? onDotTapped;
@@ -50,20 +71,21 @@ class AppCarouselDots extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (var i = 0; i < count; i++)
+            for (var i = 0; i < count; i++) ...[
+              if (i > 0 && gap > 0) SizedBox(width: gap.w),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: onDotTapped == null ? null : () => onDotTapped!(i),
                 child: SizedBox(
                   // 44px tap target around a 7px dot.
-                  width: 44.w / count.clamp(1, 4),
+                  width: tapTargetWidth?.w ?? 44.w / count.clamp(1, 4),
                   height: 44.h,
                   child: Center(
                     child: AnimatedContainer(
                       duration: context.motion(AppConstants.easeShort),
                       curve: Curves.easeOut,
-                      width: (i == activeIndex ? 18 : 7).w,
-                      height: 7.h,
+                      width: (i == activeIndex ? activeWidth : dotSize).w,
+                      height: dotSize.h,
                       decoration: BoxDecoration(
                         color: i == activeIndex ? active : inactive,
                         borderRadius: AppRadii.pill,
@@ -72,6 +94,7 @@ class AppCarouselDots extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),

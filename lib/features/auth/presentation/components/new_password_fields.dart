@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-import '../controllers/auth_form_controller.dart';
+import '../../application/providers/auth_form_controller.dart';
+import '../../application/providers/signup_form_controller.dart';
 import 'auth_fields.dart';
 import 'field_focus_group.dart';
 
@@ -33,7 +34,8 @@ class NewPasswordFields extends StatelessWidget {
     required this.onSubmit,
     this.passwordLabel = 'New Password',
     this.confirmLabel = 'Confirm Password',
-    this.passwordHelperText = 'At least 6 characters',
+    this.passwordHelperText =
+        'At least ${SignupFormController.passwordMinLength} characters',
     this.enabled = true,
   });
 

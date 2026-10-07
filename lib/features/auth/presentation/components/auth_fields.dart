@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_phone_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
-import '../controllers/auth_form_controller.dart';
+import '../../application/providers/auth_form_controller.dart';
 import 'field_focus_group.dart';
 
 /// The design-system inputs, bound to an [AuthFormState] by field key.
@@ -187,7 +187,7 @@ class AuthPhoneField extends StatelessWidget {
     required this.field,
     required this.controller,
     required this.countryCode,
-    required this.onCountryChanged,
+    this.onCountryChanged,
     required this.state,
     required this.focus,
     required this.onChanged,
@@ -201,7 +201,10 @@ class AuthPhoneField extends StatelessWidget {
   final String field;
   final TextEditingController controller;
   final CountryCode countryCode;
-  final ValueChanged<CountryCode> onCountryChanged;
+
+  /// Null locks the code (sign-in, sign-up and reset take Indian mobiles
+  /// only — §2, BL-AUTH-008).
+  final ValueChanged<CountryCode>? onCountryChanged;
   final AuthFormState state;
   final FieldFocusGroup focus;
   final void Function(String field, String value) onChanged;

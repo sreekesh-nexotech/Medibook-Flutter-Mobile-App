@@ -195,7 +195,7 @@ class AppCountdownPill extends StatelessWidget {
     required this.deadline,
     this.onExpired,
     this.prefix,
-    this.iconName = MedIcon.clock,
+    this.iconName = PhIcon.clock,
     this.urgentThreshold = const Duration(minutes: 1),
   });
 

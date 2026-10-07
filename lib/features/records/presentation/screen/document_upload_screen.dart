@@ -6,27 +6,24 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
+import '../../../../core/error/error_view.dart';
+import '../../../../core/error/failure.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_unsaved_changes_guard.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../common/attachments/application/providers/attachments_provider.dart';
+import '../../../common/attachments/domain/entities/stored_file.dart';
+import '../../application/providers/records_provider.dart';
 import '../components/document_form.dart';
-import '../controllers/document_form_controller.dart';
 
 /// `/documents/upload` — add a document to the library (CM-33).
 ///
-/// The screen is the frame: header, the [DocumentForm] body, and the submit
-/// button. Everything the form collects is real, typed data written to
-/// `documentsStoreProvider` — type, patient, recorded date, notes and the
-/// optional appointment link — so the document appears in the Records list and
-/// on that appointment's detail immediately.
-///
-/// The **file** is the one thing that cannot be real: this build ships no
-/// file-picker, storage or share package and none may be added, so the form's
-/// "Choose file" control declares itself stubbed. A document saved here
-/// correctly reports `hasFile == false`, and its preview / download controls
-/// render disabled with that reason rather than offering a download that
-/// cannot work.
+/// The screen is the frame: header, the [DocumentForm] body and the submit
+/// button. The file goes up through the shared attachment slot (§11.1: pick
+/// → upload → scan); once it is `clean` its id and the form's fields go to
+/// `POST /patient/documents`. The button stays disabled while the scan is
+/// running, so nothing is saved against a file the server would refuse.
 ///
 /// Route constant: [AppRoutes.documentUpload].
 class DocumentUploadScreen extends ConsumerWidget {
@@ -34,11 +31,27 @@ class DocumentUploadScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // null documentId == create mode.
     final state = ref.watch(documentFormProvider(null));
+    final upload = ref.watch(
+      attachmentUploadProvider(FileUploadPurpose.medicalDocument),
+    );
+    final hasUnsaved =
+        (state.isDirty || upload.hasSelection) && !state.isSaving;
+
+    // A different file answers the server's complaint about the last one.
+    ref.listen(
+      attachmentUploadProvider(
+        FileUploadPurpose.medicalDocument,
+      ).select((slot) => slot.readyFileId),
+      (previous, next) {
+        if (previous != next) {
+          ref.read(documentFormProvider(null).notifier).fileChanged();
+        }
+      },
+    );
 
     return AppUnsavedChangesGuard(
-      hasUnsavedChanges: state.isDirty && !state.isSaving,
+      hasUnsavedChanges: hasUnsaved,
       title: 'Discard this document?',
       consequence:
           'The details you have entered will not be saved to your records.',
@@ -75,17 +88,31 @@ class DocumentUploadScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const DocumentForm(),
+                        if (state.failure != null &&
+                            state.failure is! ValidationFailure) ...[
+                          SizedBox(height: 16.h),
+                          AppInlineError(
+                            failure: state.failure!,
+                            onRetry: () => _submit(context, ref),
+                          ),
+                        ],
                         SizedBox(height: 24.h),
                         AppButton(
-                          label: 'Save to records',
+                          label: upload.isBusy
+                              ? 'Waiting for the file…'
+                              : 'Save to records',
                           size: AppButtonSize.lg,
                           pill: true,
                           fullWidth: true,
-                          // Blocks the repeat tap that would otherwise write
-                          // two documents (audit §3.5.6).
                           loading: state.isSaving,
-                          semanticLabel: 'Save this document to my records',
-                          onPressed: () => _submit(context, ref),
+                          disabled: upload.isBusy,
+                          semanticLabel: upload.isBusy
+                              ? 'Save is available once the file has been '
+                                    'checked'
+                              : 'Save this document to my records',
+                          onPressed: upload.isBusy
+                              ? null
+                              : () => _submit(context, ref),
                         ),
                       ],
                     ),
@@ -100,32 +127,35 @@ class DocumentUploadScreen extends ConsumerWidget {
   }
 
   Future<void> _submit(BuildContext context, WidgetRef ref) async {
-    final saved = await ref.read(documentFormProvider(null).notifier).save();
+    final slot = ref.read(
+      attachmentUploadProvider(FileUploadPurpose.medicalDocument),
+    );
+    final saved = await ref
+        .read(documentFormProvider(null).notifier)
+        .save(fileId: slot.readyFileId);
     if (!context.mounted) return;
+    final toast = ref.read(toastControllerProvider.notifier);
     if (saved == null) {
-      // The form revealed its own field errors; say why nothing was saved
-      // rather than reporting a save that did not happen.
-      ref
-          .read(toastControllerProvider.notifier)
-          .show('Check the highlighted fields and try again');
+      final failure = ref.read(documentFormProvider(null)).failure;
+      toast.show(
+        failure?.userMessage ?? 'Check the highlighted fields and try again',
+      );
       return;
     }
+    // The file now belongs to the document; the slot must not delete it.
     ref
-        .read(toastControllerProvider.notifier)
-        .show('“${saved.title}” added to your records');
-    // Replace the form with the document it created, so back goes to the list
-    // rather than to a form that has already been submitted.
+        .read(
+          attachmentUploadProvider(FileUploadPurpose.medicalDocument).notifier,
+        )
+        .detachOwnership();
+    ref.invalidate(documentsListProvider);
+    toast.show('“${saved.title}” added to your records');
     if (context.canPop()) context.pop();
     context.push(AppRoutes.documentPath(saved.id));
   }
 
-  /// Leaves the form.
-  ///
-  /// `Navigator.maybePop`, **not** `context.pop()`: go_router's `pop` calls
-  /// `NavigatorState.pop` directly and so bypasses the `PopScope` that
-  /// [AppUnsavedChangesGuard] installs. Using it here would mean the system
-  /// back gesture warns about unsaved work while this screen's own Back and
-  /// Cancel silently discard it.
+  /// `Navigator.maybePop`, **not** `context.pop()`, so the unsaved-changes
+  /// guard's `PopScope` gets its say.
   void _leave(BuildContext context) {
     if (context.canPop()) {
       Navigator.maybePop(context);

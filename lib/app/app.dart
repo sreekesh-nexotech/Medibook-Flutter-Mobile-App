@@ -3,8 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/network/connectivity/connectivity_monitor.dart';
+import '../core/widgets/offline_bar.dart';
 import '../core/widgets/toast/toast_host.dart';
+import '../features/app_update/presentation/components/app_update_gate.dart';
 import '../features/auth/application/providers/auth_provider.dart';
+import '../features/support/application/providers/app_config_provider.dart';
 import 'config/constants.dart';
 import 'localization/l10n.dart';
 import 'router/app_router.dart';
@@ -12,8 +16,8 @@ import 'theme/theme.dart';
 
 /// Root application widget. Initialises flutter_screenutil at the design size,
 /// assembles the `MaterialApp.router`, wires the localization delegates, and
-/// mounts the global [ToastHost] once above the router so toasts float over
-/// every screen.
+/// mounts the global [ToastHost] and [AppUpdateGate] once above the router so
+/// toasts and the update prompts float over every screen.
 class MedibookApp extends ConsumerStatefulWidget {
   const MedibookApp({super.key});
 
@@ -34,11 +38,28 @@ class _MedibookAppState extends ConsumerState<MedibookApp> {
     // guard holds on the splash, so a returning user never flashes the
     // sign-in screen — and without it the state would never leave
     // `AuthUnknown` and every route would stay behind the splash.
-    Future.microtask(() => ref.read(authProvider.notifier).restore());
+    Future.microtask(() {
+      ref.read(authProvider.notifier).restore();
+      // `GET /patient/app-config` (§3.1) once per launch: the public feature
+      // flags and support numbers are cached for every screen that reads them.
+      ref.read(appConfigProvider);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    // A cold start offline restores only the cached identity (name, phone);
+    // the rest of the account comes from `GET /patient/me`. Re-read it once
+    // when the network returns — one retry on reconnect, no polling (HIVE
+    // Scenario 3).
+    ref.listen<AsyncValue<bool>>(isOnlineProvider, (previous, next) {
+      final cameBack =
+          previous?.valueOrNull == false && next.valueOrNull == true;
+      if (cameBack && ref.read(isAuthenticatedProvider)) {
+        ref.read(authProvider.notifier).refreshMe();
+      }
+    });
+
     return ScreenUtilInit(
       designSize: AppConstants.designSize,
       // Keeps `.sp` sizes legible on small screens; works with the clamped
@@ -87,7 +108,10 @@ class _MedibookAppState extends ConsumerState<MedibookApp> {
                 maxScaleFactor: AppConstants.maxTextScale,
               ),
             ),
-            child: ToastHost(child: page),
+            // One offline bar for every screen (offline audit, 6 Oct).
+            child: AppUpdateGate(
+              child: ToastHost(child: OfflineBar(child: page)),
+            ),
           );
         },
       ),

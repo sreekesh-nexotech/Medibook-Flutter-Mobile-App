@@ -94,6 +94,7 @@ abstract final class AppColors {
   static const Color dangerText = Color(0xFFB23535);
   static const Color warning = Color(0xFFF5A623); // rating stars
   static const Color warningSoft = Color(0xFFFCE6BE);
+  static const Color warningText = Color(0xFF8A5D0C); // 4.71:1 on warningSoft
 
   // ---- Overlays ----
   static const Color scrim = Color(

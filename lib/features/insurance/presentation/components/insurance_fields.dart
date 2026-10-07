@@ -92,7 +92,7 @@ class InsuranceDateField extends StatelessWidget {
                     ),
                     SizedBox(width: AppSpacing.x3.w),
                     AppIcon(
-                      MedIcon.calendar,
+                      PhIcon.calendarBlank,
                       size: 20,
                       color: AppColors.textMuted,
                     ),
@@ -109,7 +109,7 @@ class InsuranceDateField extends StatelessWidget {
               errorText!,
               style: AppText.poppins(
                 size: AppFontSize.xs,
-                color: AppColors.danger,
+                color: AppColors.dangerText,
               ),
             ),
           )

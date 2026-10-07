@@ -27,7 +27,7 @@ Future<bool?> showDiscardChangesDialog(
     consequence: consequence ?? strings.unsavedChangesBody,
     confirmLabel: discardLabel ?? strings.discard,
     cancelLabel: keepLabel ?? strings.keepEditing,
-    iconName: MedIcon.edit,
+    iconName: PhIcon.pencilSimple,
   );
 }
 

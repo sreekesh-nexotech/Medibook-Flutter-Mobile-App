@@ -50,7 +50,7 @@ class AppStepper extends StatelessWidget {
         style: AppText.poppins(
           size: AppFontSize.sm,
           weight: AppText.semibold,
-          color: done ? AppColors.textOnBrand : AppColors.primary300,
+          color: done ? AppColors.textOnBrand : AppColors.brand,
         ),
       ),
     );

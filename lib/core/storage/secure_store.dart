@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../error/failure.dart';
 import '../utils/logger.dart';
 
@@ -11,40 +14,52 @@ import '../utils/logger.dart';
 abstract final class SecureKeys {
   SecureKeys._();
 
-  /// Short-lived bearer token.
+  /// Short-lived bearer token (15 minutes, §1.4).
   static const String accessToken = 'access_token';
 
-  /// Long-lived refresh token (Coding Standards §6.2).
+  /// Rotating refresh token (§1.4). Replaced on every refresh.
   static const String refreshToken = 'refresh_token';
 
   /// Absolute expiry of [accessToken], ISO-8601, so the client can refresh
   /// pre-emptively instead of waiting for a 401.
   static const String accessTokenExpiry = 'access_token_expiry';
 
-  /// Opaque device identifier registered for push.
-  static const String deviceToken = 'device_token';
+  /// The backend session id, for `DELETE /auth/sessions/{id}` bookkeeping.
+  static const String sessionId = 'session_id';
+
+  /// The stable per-install id sent as `X-Device-Fingerprint` (§1.3).
+  ///
+  /// Lives in the keystore rather than Hive because an OTP code is bound to
+  /// it: a cache wipe must not change it mid-verification.
+  static const String deviceFingerprint = 'device_fingerprint';
+
+  /// The backend `Device.id` registered for push (§12.6).
+  static const String pushDeviceId = 'push_device_id';
+
+  /// The AES key the on-device Hive boxes are encrypted with (base64, 32
+  /// bytes). Like [deviceFingerprint] it belongs to the install, not the
+  /// user, so it survives a sign-out — the boxes kept across sign-out (the
+  /// onboarding flag) must stay readable (CL SEC-005).
+  static const String localStorageKey = 'local_storage_key';
 
   /// The user's PIN/biometric gate secret, if the app ever offers one.
   static const String appLockSecret = 'app_lock_secret';
 
   /// Every key the store owns — what [SecureStore.deleteAll] must clear.
+  ///
+  /// [deviceFingerprint] is deliberately **not** here: it identifies the
+  /// install, not the user, and must survive a sign-out.
   static const List<String> all = [
     accessToken,
     refreshToken,
     accessTokenExpiry,
-    deviceToken,
+    sessionId,
+    pushDeviceId,
     appLockSecret,
   ];
 }
 
 /// Secure key-value storage for tokens and PII.
-///
-/// Deliberately an **interface**: `flutter_secure_storage` is not a dependency
-/// of this presentation-layer build (see `pubspec.yaml`), and adding a
-/// credential store before there are credentials to store would be worse than
-/// not having one. The data layer supplies
-/// `FlutterSecureStorageStore implements SecureStore` and nothing above this
-/// file changes.
 ///
 /// Implementations must:
 /// * be backed by the platform keystore, never by a plaintext file;
@@ -61,7 +76,7 @@ abstract interface class SecureStore {
   /// Delete [key]. Deleting a missing key is a no-op.
   Future<void> delete(String key);
 
-  /// Delete every key this store owns.
+  /// Delete every key in [SecureKeys.all].
   ///
   /// This is the storage half of CM-53 ("logout clears session") — the other
   /// half is `HiveBoxes.clearedOnLogout`.
@@ -83,10 +98,12 @@ extension SecureStoreTokens on SecureStore {
     required String accessToken,
     String? refreshToken,
     DateTime? expiresAt,
+    String? sessionId,
   }) async {
     await write(SecureKeys.accessToken, accessToken);
     await write(SecureKeys.refreshToken, refreshToken);
     await write(SecureKeys.accessTokenExpiry, expiresAt?.toIso8601String());
+    if (sessionId != null) await write(SecureKeys.sessionId, sessionId);
   }
 
   /// True when there is an access token and it has not expired.
@@ -107,19 +124,18 @@ extension SecureStoreTokens on SecureStore {
     await delete(SecureKeys.accessToken);
     await delete(SecureKeys.refreshToken);
     await delete(SecureKeys.accessTokenExpiry);
+    await delete(SecureKeys.sessionId);
   }
 }
 
 /// An in-memory [SecureStore].
 ///
-/// This is what the app runs on until the platform-backed implementation
-/// exists: it satisfies the contract exactly, keeps nothing on disk, and dies
-/// with the process — which is the *safe* failure mode for a credential store
-/// (a signed-in session simply does not survive a restart) and is honest about
-/// being a stand-in, unlike writing tokens to a plaintext preference file.
+/// Used by widget tests and as the provider default. It satisfies the contract
+/// exactly, keeps nothing on disk, and dies with the process — the *safe*
+/// failure mode for a credential store.
 ///
-/// Not suitable for production. `app/bootstrap/app_bootstrap.dart` is the one
-/// place to swap it.
+/// Not suitable for production. `app/bootstrap/app_bootstrap.dart` overrides
+/// it with [FlutterSecureStorageStore].
 class InMemorySecureStore implements SecureStore {
   InMemorySecureStore({Map<String, String>? seed}) : _values = {...?seed};
 
@@ -142,10 +158,73 @@ class InMemorySecureStore implements SecureStore {
 
   @override
   Future<void> deleteAll() async {
-    _values.clear();
+    for (final key in SecureKeys.all) {
+      _values.remove(key);
+    }
     AppLogger.info('Secure store cleared', name: 'security');
   }
 
   @override
   Future<bool> containsKey(String key) async => _values.containsKey(key);
+}
+
+/// The production [SecureStore]: Android Keystore / iOS Keychain through
+/// `flutter_secure_storage`.
+///
+/// Every platform error is wrapped as a [CacheFailure] so callers keep
+/// dealing in [Failure]. Reads of a missing key return null.
+class FlutterSecureStorageStore implements SecureStore {
+  FlutterSecureStorageStore({FlutterSecureStorage? storage})
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(),
+            iOptions: IOSOptions(
+              accessibility: KeychainAccessibility.first_unlock_this_device,
+            ),
+          );
+
+  final FlutterSecureStorage _storage;
+
+  @override
+  Future<String?> read(String key) => _guard(() => _storage.read(key: key));
+
+  @override
+  Future<void> write(String key, String? value) => _guard(() async {
+    if (value == null) {
+      await _storage.delete(key: key);
+      return;
+    }
+    await _storage.write(key: key, value: value);
+  });
+
+  @override
+  Future<void> delete(String key) => _guard(() => _storage.delete(key: key));
+
+  @override
+  Future<void> deleteAll() => _guard(() async {
+    for (final key in SecureKeys.all) {
+      await _storage.delete(key: key);
+    }
+    AppLogger.info('Secure store cleared', name: 'security');
+  });
+
+  @override
+  Future<bool> containsKey(String key) =>
+      _guard(() => _storage.containsKey(key: key));
+
+  Future<T> _guard<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on PlatformException catch (error, stackTrace) {
+      throw CacheFailure(
+        userMessage:
+            'Secure storage is unavailable on this device. Please sign in '
+            'again.',
+        debugMessage: 'keystore: ${error.code}',
+        cause: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
 }

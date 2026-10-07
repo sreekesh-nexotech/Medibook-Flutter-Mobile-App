@@ -5,11 +5,8 @@
 /// an orphaned box on a user's device. `app/bootstrap/hive_init.dart` opens
 /// every box named here and nothing else.
 ///
-/// Hive itself is **not** a dependency of this presentation-layer build (see
-/// `pubspec.yaml`); this registry, `HiveKeys` and `hive_init.dart` are the
-/// contract the data layer will implement against, written now so box naming,
-/// typeIds and the cache-key strategy are settled before any code writes to
-/// disk.
+/// `HiveLocalStore` opens these boxes encrypted (AES, key in the secure
+/// store); `HiveKeys` names the keys inside the non-cache boxes.
 abstract final class HiveBoxes {
   HiveBoxes._();
 

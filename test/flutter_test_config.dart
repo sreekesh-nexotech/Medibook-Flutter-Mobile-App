@@ -22,9 +22,7 @@ Future<void> _loadFonts() async {
       'assets/fonts/Poppins-SemiBold.ttf',
       'assets/fonts/Poppins-Bold.ttf',
     ],
-    'Inter': [
-      'assets/fonts/Inter-Regular.ttf',
-    ],
+    'Inter': ['assets/fonts/Inter-Regular.ttf'],
   };
 
   for (final entry in families.entries) {

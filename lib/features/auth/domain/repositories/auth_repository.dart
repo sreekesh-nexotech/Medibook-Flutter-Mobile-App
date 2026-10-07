@@ -1,100 +1,142 @@
 import '../entities/user.dart';
 
-/// A signed-in user plus the credential that proves it.
-typedef AuthResult = ({User user, AuthSession session});
-
-/// The auth contract the application layer depends on.
+/// The auth contract the application layer depends on
+/// (`FLUTTER_API_INTEGRATION.md` §4 and §5.1–5.6).
 ///
 /// Abstract on purpose: the presentation and application layers know only this
-/// interface, so they can be built and tested against an in-memory fake while
-/// the API is still being written, and the real
+/// interface, so they can be tested against an in-memory fake, and the real
 /// `AuthRepositoryImpl` (`infrastructure/repositories/`) slots in without a
 /// single call-site change (Coding Standards §1.1, §6.1).
 ///
 /// **Error contract:** every method throws a `Failure` from
 /// `core/error/failure.dart` — never a raw exception, never a `dio` type.
-/// Callers therefore only ever `catch (e)` and switch on the failure kind.
 /// Specifically:
-/// * wrong credentials → `UnauthorizedFailure(sessionExpired: false)`
-/// * malformed input the server rejected → `ValidationFailure`
-/// * no connection / timeout → `NetworkFailure` / `TimeoutFailure`
+/// * wrong credentials / wrong code → `UnauthorizedFailure(sessionExpired:
+///   false)` with `apiCode` set and `attemptsRemaining` / `lockedUntil` from
+///   `meta`;
+/// * malformed input the server rejected → `ValidationFailure` with
+///   `fieldErrors`;
+/// * `UNDER_AGE`, `STATE_CONFLICT` … → `ConflictFailure`;
+/// * no connection / timeout → `NetworkFailure` / `TimeoutFailure`.
 abstract interface class AuthRepository {
+  // ---- Local session ----
+
   /// The cached signed-in user, or null when nobody is signed in.
   ///
   /// Reads local storage only — no network — so app start can decide between
   /// the sign-in screen and the home shell without a round trip.
   Future<User?> currentUser();
 
-  /// Whether a stored session exists and has not expired.
+  /// Whether a stored session exists (access token present; the refresh
+  /// token keeps it alive for up to 30 days).
   Future<bool> hasValidSession();
 
-  /// Email + password sign-in (CM-03).
-  Future<AuthResult> login({required String email, required String password});
+  /// The current access token, or null. For the HTTP client's bearer header
+  /// and the WebSocket subprotocol.
+  Future<String?> accessToken();
 
-  /// Mobile + OTP sign-in (CM-04). [phone] is the 10-digit national number.
-  Future<AuthResult> loginWithOtp({
-    required String phone,
-    required String code,
-  });
+  // ---- Sign-in (§4.3–4.5) ----
 
-  /// Send (or resend) an OTP to [phone].
-  Future<void> requestOtp({required String phone});
-
-  /// Create an account (CM-01).
-  Future<AuthResult> signUp({
-    required String name,
-    required String email,
-    required String phone,
+  /// Email-or-phone + password (§4.5). [identifier] is an E.164 number or an
+  /// email.
+  Future<AuthResult> loginWithPassword({
+    required String identifier,
     required String password,
   });
 
-  /// Exchange the stored refresh token for a new session (Coding Standards
-  /// §6.2). Throws `UnauthorizedFailure` when the refresh token is dead — the
-  /// caller's only correct response to that is [logout].
+  /// Send a sign-in code to [phoneE164] (§4.3). An unregistered number gets
+  /// the same challenge and no SMS.
+  Future<OtpChallenge> startOtpLogin({required String phoneE164});
+
+  /// Finish a code sign-in (§4.4).
+  Future<AuthResult> verifyOtpLogin({
+    required String challengeId,
+    required String code,
+  });
+
+  /// Re-send the code for any open challenge (§4.6).
+  Future<OtpChallenge> resendOtp({required String challengeId});
+
+  // ---- Sign-up (§4.1–4.2) ----
+
+  /// Validate the form and send the code. No account exists until
+  /// [verifySignup] succeeds.
+  Future<OtpChallenge> startSignup(SignupRequest request);
+
+  /// Create the account, sign in, and return the self person id.
+  Future<AuthResult> verifySignup({
+    required String challengeId,
+    required String code,
+  });
+
+  // ---- Password reset, signed out (§4.7) ----
+
+  Future<OtpChallenge> startPasswordReset({required String identifier});
+
+  Future<PasswordResetGrant> verifyPasswordReset({
+    required String challengeId,
+    required String code,
+  });
+
+  /// Sets the new password and revokes every session — the caller sends the
+  /// user to sign-in.
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+  });
+
+  // ---- Session lifecycle (§4.8–4.9) ----
+
+  /// Exchange the stored refresh token for a new pair (§4.8). Throws
+  /// `UnauthorizedFailure(sessionExpired: true)` when the refresh token is
+  /// dead — the caller's only correct response to that is [logout].
+  ///
+  /// Single-flight: calls that overlap share one server call, because the
+  /// server revokes the session when a refresh token is presented twice.
   Future<AuthSession> refreshSession();
 
-  /// End the session.
+  /// End this session.
   ///
-  /// Implementations must clear **everything** — access and refresh tokens
-  /// from `SecureStore`, the session and cache boxes from
-  /// `HiveBoxes.clearedOnLogout`, and the analytics/crash identity — and must
-  /// do so even if the server call fails. A logout that leaves data behind is
-  /// the CM-53 bug.
+  /// Implementations must clear **everything** local — tokens, the session
+  /// and cache boxes from `HiveBoxes.clearedOnLogout`, the analytics/crash
+  /// identity — and must do so even if the server call fails (CM-53).
   Future<void> logout();
 
-  /// Start a password reset (CM-06): emails/SMSes a code to [email].
-  Future<void> requestPasswordReset({required String email});
+  /// End every session of the user (§4.9), then clear local state.
+  Future<void> logoutAll();
 
-  /// Finish a password reset with the code from [requestPasswordReset]
-  /// (CM-07/CM-08).
-  Future<void> resetPassword({
-    required String email,
-    required String code,
-    required String newPassword,
-  });
+  /// Drop local state only, without a server call — for a session the server
+  /// already ended (`AUTH_SESSION_REVOKED`).
+  Future<void> clearLocalSession();
 
-  /// Change the password of the signed-in user (CM-51). Requires the current
-  /// password; a wrong one is a `ValidationFailure` on `currentPassword`.
+  // ---- Account (§5.1, §5.5) ----
+
+  /// `GET /patient/me` — refresh the cached user from the server.
+  Future<User> fetchMe();
+
+  /// Set (OTP-only account) or change the password (§5.5). A wrong
+  /// [currentPassword] is an `UnauthorizedFailure(sessionExpired: false)`
+  /// with `fieldErrors['current_password']` — not a session expiry.
   Future<void> changePassword({
-    required String currentPassword,
+    String? currentPassword,
     required String newPassword,
   });
 
-  /// Persistently record a failed sign-in attempt and return the new count.
-  ///
-  /// Persistent because CM-05's lockout must survive a force-quit — an
-  /// in-memory counter is trivially defeated by killing the app.
-  Future<int> registerFailedAttempt();
+  // ---- Lockout mirror (§4: `AUTH_LOCKED_OUT`, `meta.locked_until`) ----
+  //
+  // The server owns the rule (5 failures → 1 hour). The device only remembers
+  // the deadline the server announced, so the sign-in form can count it down
+  // and refuse to spend the cooldown guessing.
 
-  /// Failed attempts recorded so far.
-  Future<int> failedAttempts();
+  /// The lockout in force for [identifier] (or for any account when null),
+  /// or null. The server locks one account, not the phone: a lockout of
+  /// another account does not apply (BL-AUTH-035).
+  Future<DateTime?> lockedUntil({String? identifier});
 
-  /// When the current lockout expires, or null when not locked out.
-  Future<DateTime?> lockedUntil();
+  /// The account the remembered lockout belongs to, or null.
+  Future<String?> lockedIdentifier();
 
-  /// Begin a lockout that ends at [until].
-  Future<void> lockOut(DateTime until);
+  Future<void> rememberLockout(DateTime until, {String? identifier});
 
-  /// Clear the attempt counter and any lockout (a successful sign-in).
-  Future<void> clearFailedAttempts();
+  Future<void> clearLockout();
 }

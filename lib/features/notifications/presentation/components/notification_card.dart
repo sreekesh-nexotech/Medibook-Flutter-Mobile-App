@@ -4,47 +4,41 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/app_notification.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_badge.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
+import '../../domain/entities/notification.dart';
 import 'notification_kind_style.dart';
 
 /// One notification card (CM-40 … CM-43).
 ///
-/// What it adds over the four fixed cards the audit found:
-///
-/// * **Kind.** A confirmation, a reminder, a change, a cancellation and a
-///   general notice each get their own glyph, tint and badge, so they are
-///   distinguishable at a glance — and by glyph and label alone, not by colour
-///   only. See [NotificationKindStyle].
+/// * **Kind.** Each of the six backend kinds gets its own glyph, tint and
+///   badge, so they are distinguishable at a glance — and by glyph and label
+///   alone, not by colour only. See [NotificationKindStyle].
 /// * **Unread state.** An unread card is visibly unread: a tinted surface, a
 ///   kind-coloured ring, a dot beside the title and a bold title. Its
-///   semantics say so too, because none of those markers is announced.
-/// * **Tap to read.** Tapping the card calls [onOpen], which the screen maps
-///   to `markRead(id)` plus any deep link.
+///   semantics say so too.
+/// * **Tap to open.** [onOpen] — the screen marks it read and follows the
+///   notification's `data.event` (§12.1).
 /// * **Long-press for the rest.** [onToggleRead] and [onRemove] hang off a
-///   long press (and, on the screen, a swipe), so the card itself stays a
-///   single obvious tap target.
+///   long press (and, on the screen, a swipe).
 ///
-/// Pure presentation: the screen owns every decision about what an action does.
+/// Pure presentation: the screen owns every decision about what happens.
 class NotificationCard extends StatelessWidget {
   const NotificationCard({
     super.key,
     required this.notification,
-    required this.onAction,
     this.onOpen,
     this.onToggleRead,
     this.onRemove,
+    this.busy = false,
   });
 
-  final AppNotification notification;
+  final PatientNotification notification;
 
-  /// One of the notification's own two buttons was pressed.
-  final ValueChanged<NotificationAction> onAction;
-
-  /// Tapping the card — the screen marks it read and follows any deep link.
+  /// Tapping the card.
   final VoidCallback? onOpen;
 
   /// Flip read ↔ unread. Offered on long press.
@@ -52,6 +46,9 @@ class NotificationCard extends StatelessWidget {
 
   /// Dismiss this notification. Offered on long press.
   final VoidCallback? onRemove;
+
+  /// A read / unread / dismiss call is in flight for this row.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -65,19 +62,22 @@ class NotificationCard extends StatelessWidget {
       // announced, so the state goes in the label (audit §3.3.1).
       label:
           '${kind.label}. ${notification.title}. '
-          '${isUnread ? 'Unread' : 'Read'}. ${notification.ago}.',
-      child: AppCard(
-        padding: EdgeInsets.all(18.w),
-        // Unread reads differently three ways over, so it survives greyscale
-        // and colour-blindness: a tinted surface, a kind-coloured ring, and
-        // the dot + bold title inside.
-        color: isUnread ? AppColors.surfaceAlt : AppColors.surface,
-        border: isUnread ? Border.all(color: accent, width: 1.w) : null,
-        onTap: onOpen,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onLongPress: _hasLongPressMenu ? () => _showActions(context) : null,
-          child: _Body(notification: notification, onAction: onAction),
+          '${isUnread ? 'Unread' : 'Read'}. '
+          '${AppDates.relativeAgo(notification.createdAt)}.',
+      child: Opacity(
+        opacity: busy ? 0.6 : 1,
+        child: AppCard(
+          padding: EdgeInsets.all(18.w),
+          color: isUnread ? AppColors.surfaceAlt : AppColors.surface,
+          border: isUnread ? Border.all(color: accent, width: 1.w) : null,
+          onTap: busy ? null : onOpen,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: _hasLongPressMenu && !busy
+                ? () => _showActions(context)
+                : null,
+            child: _Body(notification: notification),
+          ),
         ),
       ),
     );
@@ -147,12 +147,11 @@ class NotificationCard extends StatelessWidget {
 }
 
 /// The card's contents: kind glyph, title row with the unread dot, body, the
-/// kind badge and time, and the notification's own action row.
+/// kind badge and time.
 class _Body extends StatelessWidget {
-  const _Body({required this.notification, required this.onAction});
+  const _Body({required this.notification});
 
-  final AppNotification notification;
-  final ValueChanged<NotificationAction> onAction;
+  final PatientNotification notification;
 
   @override
   Widget build(BuildContext context) {
@@ -230,10 +229,10 @@ class _Body extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppIcon(MedIcon.clock, size: 14, color: AppColors.textMuted),
+                AppIcon(PhIcon.clock, size: 14, color: AppColors.textMuted),
                 SizedBox(width: 6.w),
                 Text(
-                  notification.ago,
+                  AppDates.relativeAgo(notification.createdAt),
                   style: AppText.poppins(
                     size: AppFontSize.xs,
                     color: AppColors.textMuted,
@@ -243,33 +242,6 @@ class _Body extends StatelessWidget {
             ),
           ],
         ),
-        if (notification.hasActions) ...[
-          SizedBox(height: 14.h),
-          Row(
-            children: [
-              Expanded(
-                child: AppButton(
-                  label: notification.action1Label!,
-                  variant: AppButtonVariant.secondary,
-                  size: AppButtonSize.sm,
-                  pill: true,
-                  fullWidth: true,
-                  onPressed: () => onAction(notification.action1!),
-                ),
-              ),
-              SizedBox(width: 12.w),
-              Expanded(
-                child: AppButton(
-                  label: notification.action2Label!,
-                  size: AppButtonSize.sm,
-                  pill: true,
-                  fullWidth: true,
-                  onPressed: () => onAction(notification.action2!),
-                ),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }

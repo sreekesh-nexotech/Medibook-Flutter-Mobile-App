@@ -1,39 +1,37 @@
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/colors.dart';
-import '../../../../core/mock_data/models/app_notification.dart';
 import '../../../../core/widgets/app_badge.dart';
 import '../../../../core/widgets/app_icon.dart';
+import '../../domain/entities/notification.dart';
 
-/// The one place a [NotificationKind] maps to a glyph and a tone.
+/// The one place a [NotificationKind] (§17: the six backend kinds) maps to a
+/// glyph and a tone.
 ///
-/// The audit's CM-40 … CM-43 finding was that the notifications screen was
-/// "four fixed cards" with no way to tell a confirmation from a cancellation.
-/// Every kind now reads differently at a glance — icon, tint and badge tone —
-/// and it reads the same everywhere, because the card, the filter chips and
-/// any future in-app banner all resolve it here.
-///
-/// Colour carries the tone but never carries it alone: each kind also has its
-/// own glyph and its own text label, so the distinction survives both
-/// greyscale and colour-blindness.
+/// Every kind reads differently at a glance — icon, tint and badge tone —
+/// and it reads the same everywhere, because the card and the filter chips
+/// both resolve it here. Colour carries the tone but never carries it alone:
+/// each kind also has its own glyph and its own text label.
 abstract final class NotificationKindStyle {
   NotificationKindStyle._();
 
   /// A [MedIcon] name for [kind].
   static String icon(NotificationKind kind) => switch (kind) {
-    NotificationKind.confirmation => MedIcon.calendar,
-    NotificationKind.reminder => MedIcon.clock,
-    NotificationKind.change => MedIcon.edit,
-    NotificationKind.cancellation => MedIcon.closeCircle,
-    NotificationKind.general => MedIcon.bell,
+    NotificationKind.confirmation => PhIcon.calendarBlank,
+    NotificationKind.reminder => PhIcon.clock,
+    NotificationKind.cancellation => PhIcon.xCircle,
+    NotificationKind.payment => MedIcon.bag,
+    NotificationKind.queue => PhIcon.buildings,
+    NotificationKind.general => PhIcon.bell,
   };
 
   /// The glyph colour — also the accent used for the unread marker.
   static Color accent(NotificationKind kind) => switch (kind) {
     NotificationKind.confirmation => AppColors.successText,
     NotificationKind.reminder => AppColors.warning,
-    NotificationKind.change => AppColors.infoBlue,
     NotificationKind.cancellation => AppColors.dangerText,
+    NotificationKind.payment => AppColors.infoBlue,
+    NotificationKind.queue => AppColors.accentBlue,
     NotificationKind.general => AppColors.brand,
   };
 
@@ -41,8 +39,9 @@ abstract final class NotificationKindStyle {
   static Color wash(NotificationKind kind) => switch (kind) {
     NotificationKind.confirmation => AppColors.successSoft,
     NotificationKind.reminder => AppColors.warningSoft,
-    NotificationKind.change => AppColors.surfaceTint,
     NotificationKind.cancellation => AppColors.dangerSoft,
+    NotificationKind.payment ||
+    NotificationKind.queue ||
     NotificationKind.general => AppColors.surfaceTint,
   };
 
@@ -50,8 +49,8 @@ abstract final class NotificationKindStyle {
   static AppBadgeTone badgeTone(NotificationKind kind) => switch (kind) {
     NotificationKind.confirmation => AppBadgeTone.success,
     NotificationKind.reminder => AppBadgeTone.warning,
-    NotificationKind.change => AppBadgeTone.brand,
     NotificationKind.cancellation => AppBadgeTone.danger,
+    NotificationKind.payment || NotificationKind.queue => AppBadgeTone.brand,
     NotificationKind.general => AppBadgeTone.neutral,
   };
 }

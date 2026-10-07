@@ -8,67 +8,115 @@ import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/medical_record.dart';
-import '../../../../core/mock_data/stores/documents_store.dart';
-import '../../../../core/widgets/app_badge.dart';
+import '../../../../core/utils/external_url.dart';
+import '../../../../core/error/error_view.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/route_arrival.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_confirm_dialog.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../../../core/widgets/app_tag.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../../../core/widgets/states/app_not_found_view.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../common/attachments/domain/entities/stored_file.dart';
+import '../../../common/attachments/presentation/components/attachment_upload_tile.dart';
+import '../../application/providers/records_provider.dart';
+import '../../domain/entities/medical_document.dart';
 import '../components/document_type_icon.dart';
-import '../controllers/linkable_appointments_provider.dart';
+import '../../../appointments/application/providers/appointments_provider.dart'
+    show appointmentLinkLabelProvider;
+import '../../application/providers/documents_filter_controller.dart';
 import 'document_edit_sheet.dart';
 
 /// `/documents/:id` — one document in full (CM-34 … CM-36).
 ///
-/// Shows every field the library actually stores — type, patient, facility,
-/// consulting doctor, recorded date, upload date, the linked appointment and
-/// the notes — plus **Edit** and **Delete**.
+/// Reads `GET /patient/documents/{id}` through [documentProvider] and renders
+/// its four states: skeleton, not-found (a stale deep link or a document
+/// deleted elsewhere), error with retry, and the document.
 ///
-/// Three honesty rules hold here, because this build ships no PDF renderer, no
-/// storage and no share package:
+/// **Open file** fetches a fresh ten-minute URL from
+/// `GET …/download-url` every time (§11.3 — never cached) and hands it to
+/// the platform with `url_launcher`. There is deliberately **no Share**:
+/// medical documents are visible to the patient only (§11).
 ///
-/// * **View / Download / Share** are stubbed or disabled with a reason. None
-///   of them ever reports a file that did not move.
-/// * **Delete** is destructive, so it goes through [showAppConfirmDialog], and
-///   `DocumentsStore.remove` returns a `bool` — this screen reports success
-///   only on `true`.
-/// * An unknown id renders [AppNotFoundView] rather than an empty shell, which
-///   is what a stale deep link or a document deleted on another screen hits.
-///
-/// Route constant: [AppRoutes.documentPath] (`AppRoutes.documentPath(id)`).
+/// Route constant: [AppRoutes.documentPath].
 class DocumentDetailScreen extends ConsumerWidget {
   const DocumentDetailScreen({super.key, required this.documentId});
 
-  /// The `MedicalRecord.id` to show.
   final String documentId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final document = ref.watch(documentByIdProvider(documentId));
+    final document = ref.watch(documentProvider(documentId));
 
-    if (document == null) {
-      return AppNotFoundView(
-        headline: 'Document not found',
-        body: 'It may have been deleted from your records.',
-        attemptedPath: AppRoutes.documentPath(documentId),
-        onGoBack: context.canPop() ? () => context.pop() : null,
-        onGoHome: () => context.go(AppRoutes.records),
-        iconName: MedIcon.records,
-      );
+    return RouteArrival(
+      onArrive: () => ref.invalidate(documentProvider(documentId)),
+      child: document.when(
+        loading: () => _Frame(
+          onBack: () => _leave(context),
+          child: SingleChildScrollView(
+            child: AppSkeletonList(
+              count: 2,
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.x5.w,
+                AppSpacing.x3.h,
+                AppSpacing.x5.w,
+                AppSpacing.x6.h,
+              ),
+            ),
+          ),
+        ),
+        error: (error, _) {
+          if (error is NotFoundFailure) {
+            return AppNotFoundView(
+              headline: 'Document not found',
+              body: 'It may have been deleted from your records.',
+              attemptedPath: AppRoutes.documentPath(documentId),
+              onGoBack: context.canPop() ? () => context.pop() : null,
+              onGoHome: () => context.go(AppRoutes.records),
+              // It goes to Records, so it must not say "Go to Home".
+              homeLabel: 'Go to Records',
+              iconName: PhIcon.folder,
+            );
+          }
+          return _Frame(
+            onBack: () => _leave(context),
+            child: AppErrorView(
+              failure: error is Failure ? error : error.asFailure(),
+              headline: 'We could not load this document',
+              onRetry: () => ref.invalidate(documentProvider(documentId)),
+            ),
+          );
+        },
+        data: (doc) => _Frame(
+          onBack: () => _leave(context),
+          child: _Body(document: doc),
+        ),
+      ),
+    );
+  }
+
+  static void _leave(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.records);
     }
+  }
+}
 
-    final appointmentId = document.appointmentId;
-    final linked = appointmentId == null
-        ? null
-        : ref.watch(linkableAppointmentByIdProvider(appointmentId));
-    final notes = document.notes;
+class _Frame extends StatelessWidget {
+  const _Frame({required this.onBack, required this.child});
 
+  final VoidCallback onBack;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgApp,
       body: TweenAnimationBuilder<double>(
@@ -87,133 +135,145 @@ class DocumentDetailScreen extends ConsumerWidget {
             children: [
               AppInnerHeader(
                 title: 'Document',
-                onBack: () => _leave(context),
+                onBack: onBack,
                 backSemanticLabel: 'Back to records',
               ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    AppSpacing.x5.w,
-                    6.h,
-                    AppSpacing.x5.w,
-                    24.h,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _Heading(document: document),
-                      SizedBox(height: 16.h),
-                      AppCard(
-                        padding: EdgeInsets.all(18.w),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _DetailRow(
-                              icon: MedIcon.records,
-                              label: 'Patient',
-                              value: document.patient.isEmpty
-                                  ? 'Not recorded'
-                                  : document.patient,
-                            ),
-                            _DetailRow(
-                              icon: MedIcon.calendar,
-                              label: 'Date on the document',
-                              value: document.date,
-                            ),
-                            _DetailRow(
-                              icon: MedIcon.clock,
-                              label: 'Added to your records',
-                              value: document.uploadedLabel,
-                            ),
-                            if (document.hospital.isNotEmpty)
-                              _DetailRow(
-                                icon: MedIcon.hospital,
-                                label: 'Center / hospital',
-                                value: document.hospital,
-                              ),
-                            if (document.doctor.isNotEmpty)
-                              _DetailRow(
-                                icon: MedIcon.records,
-                                label: 'Consulted doctor',
-                                value: document.doctor,
-                              ),
-                            _DetailRow(
-                              icon: MedIcon.calendar,
-                              label: 'Linked appointment',
-                              value: linked?.label ?? 'Not linked to a visit',
-                              onTap: appointmentId == null
-                                  ? null
-                                  : () => context.push(
-                                      AppRoutes.appointmentDetailPath(
-                                        appointmentId,
-                                      ),
-                                    ),
-                            ),
-                            _DetailRow(
-                              icon: MedIcon.download,
-                              label: 'File',
-                              value: document.hasFile
-                                  ? '${document.fileName} · '
-                                        '${document.fileSizeLabel}'
-                                  : 'No file attached',
-                            ),
-                            if (notes != null && notes.isNotEmpty)
-                              _DetailRow(
-                                icon: MedIcon.edit,
-                                label: 'Notes',
-                                value: notes,
-                                isLast: true,
-                              ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: 18.h),
-                      _FileActions(document: document),
-                      SizedBox(height: 18.h),
-                      AppButton(
-                        label: 'Edit details',
-                        variant: AppButtonVariant.secondary,
-                        size: AppButtonSize.md,
-                        pill: true,
-                        fullWidth: true,
-                        leadingIcon: MedIcon.edit,
-                        semanticLabel:
-                            'Edit the details of '
-                            '${document.title}',
-                        onPressed: () =>
-                            showDocumentEditSheet(context, document.id),
-                      ),
-                      SizedBox(height: 12.h),
-                      AppButton(
-                        label: 'Delete document',
-                        variant: AppButtonVariant.danger,
-                        size: AppButtonSize.md,
-                        pill: true,
-                        fullWidth: true,
-                        semanticLabel:
-                            'Delete ${document.title} from my '
-                            'records',
-                        onPressed: () => _delete(context, ref, document),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              Expanded(child: child),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  /// Confirms, then removes. `remove` returns false for an id that is already
-  /// gone (deleted on another surface, or a stale deep link), and that case
-  /// reports the truth instead of a deletion that did not happen.
-  Future<void> _delete(
-    BuildContext context,
-    WidgetRef ref,
-    MedicalRecord document,
-  ) async {
+class _Body extends ConsumerWidget {
+  const _Body({required this.document});
+
+  final MedicalDocument document;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appointmentId = document.appointmentId;
+    // One `GET /patient/appointments/{id}` names the linked visit; loading
+    // every appointment list to label one link was the old way.
+    final linkedLabel = appointmentId == null
+        ? null
+        : ref.watch(appointmentLinkLabelProvider(appointmentId));
+    final names = ref.watch(documentPersonNamesProvider);
+    final actions = ref.watch(documentActionsProvider(document.id));
+    final notes = document.notes;
+    final createdAt = document.createdAt;
+    final editedAt = document.lastEditedAt;
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(AppSpacing.x5.w, 6.h, AppSpacing.x5.w, 24.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Heading(document: document),
+          SizedBox(height: 16.h),
+          AppCard(
+            padding: EdgeInsets.all(18.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DetailRow(
+                  icon: PhIcon.folder,
+                  label: 'Patient',
+                  value: names[document.personId] ?? 'A family member',
+                ),
+                _DetailRow(
+                  icon: PhIcon.calendarBlank,
+                  label: 'Date on the document',
+                  value: AppDates.dayMonthYear(document.documentDate),
+                ),
+                if (createdAt != null)
+                  _DetailRow(
+                    icon: PhIcon.clock,
+                    label: 'Added to your records',
+                    value: AppDates.dayMonthYear(createdAt.toLocal()),
+                  ),
+                if (editedAt != null)
+                  _DetailRow(
+                    icon: PhIcon.pencilSimple,
+                    label: 'Last edited',
+                    value: AppDates.dayMonthYear(editedAt.toLocal()),
+                  ),
+                _DetailRow(
+                  icon: PhIcon.calendarBlank,
+                  label: 'Linked appointment',
+                  value: appointmentId == null
+                      ? 'Not linked to a visit'
+                      : linkedLabel ?? 'A visit',
+                  onTap: appointmentId == null
+                      ? null
+                      : () => context.push(
+                          AppRoutes.appointmentDetailPath(appointmentId),
+                        ),
+                ),
+                _DetailRow(
+                  icon: PhIcon.downloadSimple,
+                  label: 'File',
+                  value: document.file.originalName.isEmpty
+                      ? formatFileSize(document.file.sizeBytes)
+                      : '${document.file.originalName} · '
+                            '${formatFileSize(document.file.sizeBytes)}',
+                ),
+                if (notes != null && notes.isNotEmpty)
+                  _DetailRow(
+                    icon: PhIcon.pencilSimple,
+                    label: 'Notes',
+                    value: notes,
+                    isLast: true,
+                  ),
+              ],
+            ),
+          ),
+          SizedBox(height: 18.h),
+          if (actions.failure != null) ...[
+            AppInlineError(
+              failure: actions.failure!,
+              onRetry: ref
+                  .read(documentActionsProvider(document.id).notifier)
+                  .clearFailure,
+              retryLabel: 'Dismiss',
+            ),
+            SizedBox(height: 12.h),
+          ],
+          _FileActions(document: document),
+          SizedBox(height: 18.h),
+          AppButton(
+            label: 'Edit details',
+            variant: AppButtonVariant.secondary,
+            size: AppButtonSize.md,
+            pill: true,
+            fullWidth: true,
+            leadingIcon: MedIcon.edit,
+            disabled: actions.isBusy,
+            semanticLabel: 'Edit the details of ${document.title}',
+            onPressed: actions.isBusy
+                ? null
+                : () => showDocumentEditSheet(context, document.id),
+          ),
+          SizedBox(height: 12.h),
+          AppButton(
+            label: 'Delete document',
+            variant: AppButtonVariant.danger,
+            size: AppButtonSize.md,
+            pill: true,
+            fullWidth: true,
+            loading: actions.isDeleting,
+            disabled: actions.isResolvingUrl,
+            semanticLabel: 'Delete ${document.title} from my records',
+            onPressed: actions.isBusy ? null : () => _delete(context, ref),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final confirmed = await showAppConfirmDialog(
       context,
       title: 'Delete “${document.title}”?',
@@ -222,42 +282,38 @@ class DocumentDetailScreen extends ConsumerWidget {
           'attached to. This cannot be undone.',
       confirmLabel: 'Delete',
       cancelLabel: 'Keep it',
-      iconName: MedIcon.closeCircle,
+      iconName: PhIcon.xCircle,
     );
     if (confirmed != true || !context.mounted) return;
 
-    final removed = ref
-        .read(documentsStoreProvider.notifier)
-        .remove(document.id);
+    final failure = await ref
+        .read(documentActionsProvider(document.id).notifier)
+        .delete(document);
     if (!context.mounted) return;
     final toast = ref.read(toastControllerProvider.notifier);
-    if (!removed) {
-      toast.show('That document was already removed');
-      return;
-    }
-    toast.show('“${document.title}” deleted');
-    _leave(context);
-  }
-
-  void _leave(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
+    if (failure != null) {
+      toast.show(
+        failure is NotFoundFailure
+            ? 'That document was already removed'
+            : failure.userMessage,
+      );
+      if (failure is! NotFoundFailure) return;
     } else {
-      context.go(AppRoutes.records);
+      toast.show('“${document.title}” deleted');
     }
+    ref.invalidate(documentsListProvider);
+    DocumentDetailScreen._leave(context);
   }
 }
 
-/// Type glyph, title, type tag and status badge.
+/// Type glyph, title, type tag and file status.
 class _Heading extends StatelessWidget {
   const _Heading({required this.document});
 
-  final MedicalRecord document;
+  final MedicalDocument document;
 
   @override
   Widget build(BuildContext context) {
-    final isCompleted = document.status == RecordStatus.completed;
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -270,7 +326,7 @@ class _Heading extends StatelessWidget {
           ),
           child: Center(
             child: AppIcon(
-              DocumentTypeIcon.of(document.type),
+              DocumentTypeIcon.of(document.docType),
               size: 24,
               color: AppColors.brand,
             ),
@@ -294,13 +350,9 @@ class _Heading extends StatelessWidget {
                 spacing: 8.w,
                 runSpacing: 8.h,
                 children: [
-                  AppTag(label: document.type.label),
-                  AppBadge(
-                    label: document.status.label,
-                    tone: isCompleted
-                        ? AppBadgeTone.success
-                        : AppBadgeTone.warning,
-                  ),
+                  AppTag(label: document.docType.label),
+                  if (document.file.status != FileStatus.clean)
+                    AppTag(label: 'File: ${document.file.status.label}'),
                 ],
               ),
             ],
@@ -311,82 +363,47 @@ class _Heading extends StatelessWidget {
   }
 }
 
-/// The three file controls, each honest about what this build can do.
-///
-/// With a file on the record they are `stubbed` and say so; with no file — the
-/// state of every document created in-app, since there is no picker — they are
-/// `disabled` and their `semanticLabel` gives the reason.
+/// The one file action: a fresh signed URL handed to the platform. View and
+/// Download did exactly this, so they are a single "Open file" (BL-REC-034).
+/// No Share (§11).
 class _FileActions extends ConsumerWidget {
   const _FileActions({required this.document});
 
-  final MedicalRecord document;
+  final MedicalDocument document;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasFile = document.hasFile;
+    final actions = ref.watch(documentActionsProvider(document.id));
+    final ready = document.file.status == FileStatus.clean;
     final title = document.title;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: AppButton(
-                label: 'View',
-                variant: AppButtonVariant.secondary,
-                size: AppButtonSize.md,
-                pill: true,
-                fullWidth: true,
-                leadingIcon: MedIcon.eye,
-                stubbed: hasFile,
-                disabled: !hasFile,
-                semanticLabel: hasFile
-                    ? 'Preview $title — stubbed in this demo'
-                    : 'Preview unavailable — no file is attached to $title',
-                onPressed: hasFile
-                    ? () => showStubbedToast(context, ref, 'Preview')
-                    : null,
-              ),
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: AppButton(
-                label: 'Download',
-                size: AppButtonSize.md,
-                pill: true,
-                fullWidth: true,
-                leadingIcon: MedIcon.download,
-                stubbed: hasFile,
-                disabled: !hasFile,
-                semanticLabel: hasFile
-                    ? 'Download $title — stubbed in this demo'
-                    : 'Download unavailable — no file is attached to $title',
-                onPressed: hasFile
-                    ? () => showStubbedToast(context, ref, 'Download')
-                    : null,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 12.h),
-        AppButton(
-          label: 'Share',
-          variant: AppButtonVariant.ghost,
-          size: AppButtonSize.md,
-          pill: true,
-          fullWidth: true,
-          stubbed: hasFile,
-          disabled: !hasFile,
-          semanticLabel: hasFile
-              ? 'Share $title — stubbed in this demo'
-              : 'Sharing unavailable — no file is attached to $title',
-          onPressed: hasFile
-              ? () => showStubbedToast(context, ref, 'Share')
-              : null,
-        ),
-      ],
+    return AppButton(
+      label: 'Open file',
+      size: AppButtonSize.md,
+      pill: true,
+      fullWidth: true,
+      leadingIcon: MedIcon.eye,
+      loading: actions.isResolvingUrl,
+      disabled: !ready || actions.isDeleting,
+      semanticLabel: ready
+          ? 'Open $title — opens in your browser, where you can view or '
+                'save it'
+          : 'File unavailable — the file is not ready',
+      onPressed: ready && !actions.isBusy ? () => _open(context, ref) : null,
     );
+  }
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final signed = await ref
+        .read(documentActionsProvider(document.id).notifier)
+        .downloadUrl(document.id);
+    if (signed == null || !context.mounted) return;
+    final launched = await openExternalUrl(signed.url);
+    if (!launched && context.mounted) {
+      ref
+          .read(toastControllerProvider.notifier)
+          .show('No app on this device could open the file');
+    }
   }
 }
 
@@ -445,7 +462,6 @@ class _DetailRow extends StatelessWidget {
     );
 
     return Padding(
-      // No fixed height: every row grows with the OS text scale.
       padding: EdgeInsets.only(bottom: isLast ? 0 : 14.h),
       child: onTap == null
           ? row

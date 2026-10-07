@@ -4,66 +4,39 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/doctor.dart';
-import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../domain/entities/booked_appointment.dart';
+import 'slot_labels.dart';
 
-/// Booking step 4 confirmation card: a doctor header over the
-/// Hospital / Patient / Department / Date / Time / Reference / Token rows.
+/// The payment screen's order summary: a doctor header over the Hospital /
+/// Patient / Department / Date / Time / Reference / Token rows, from the
+/// **booked** appointment (§9.1).
 ///
-/// ## What the audit changed here
-///
-/// * **CM-14.** A token was the only identifier on screen. The **booking
-///   reference** ([bookingRef]) now has its own row, above the token, because
-///   they are different things: the token is today's queue position at one
-///   desk (`T-026`, reused tomorrow), the reference is the permanent id
-///   (`MB-2026-000125`) and is what support and appointment search match on.
-/// * **CM-11.** The hospital has a row, so a patient who picked a facility can
-///   confirm they are booking at it.
-/// * **§3.8.3.** [scheduledAt] is a real instant. The date and the slot range
-///   are rendered from it here, at the edge, instead of being carried around as
-///   display strings.
-/// * **CM-13.** The consultation-fee row has moved out to
-///   [FeeBreakdownCard] — a single fee row was the finding, and a card of one
-///   row plus a total is not a breakdown.
+/// The booking reference and the token are both on it, labelled for what
+/// they are — the reference is the permanent id, the token is the day's
+/// queue position — and both came from the backend at booking time. The
+/// date and time render in the hospital's zone.
 class ConfirmSummary extends StatelessWidget {
   const ConfirmSummary({
     super.key,
-    required this.doctor,
+    required this.appointment,
     required this.patientName,
-    required this.departmentName,
-    required this.hospitalName,
-    required this.scheduledAt,
-    required this.slotRangeLabel,
-    required this.bookingRef,
-    required this.token,
+    this.timezone,
   });
 
-  final Doctor doctor;
+  final BookedAppointment appointment;
   final String patientName;
-  final String departmentName;
-  final String hospitalName;
-
-  /// The booked instant.
-  final DateTime scheduledAt;
-
-  /// "10:30 AM – 10:45 AM".
-  final String slotRangeLabel;
-
-  /// `MB-2026-000125` (CM-14).
-  final String bookingRef;
-
-  /// `T-026` — the day's queue position.
-  final String token;
+  final String? timezone;
 
   @override
   Widget build(BuildContext context) {
+    final a = appointment;
     final rows =
         <({String label, String value, Color color, FontWeight weight})>[
           (
             label: 'Hospital',
-            value: hospitalName,
+            value: a.hospitalName,
             color: AppColors.textPrimary,
             weight: AppText.medium,
           ),
@@ -75,35 +48,37 @@ class ConfirmSummary extends StatelessWidget {
           ),
           (
             label: 'Department',
-            value: departmentName,
+            value: a.departmentName,
             color: AppColors.textPrimary,
             weight: AppText.medium,
           ),
           (
             label: 'Date',
-            value:
-                '${AppDates.relativeDay(scheduledAt)} · '
-                '${AppDates.weekdayLong(scheduledAt)}',
+            value: SlotLabels.dayLong(a.scheduledDate, timezone: timezone),
             color: AppColors.textPrimary,
             weight: AppText.medium,
           ),
           (
             label: 'Time',
-            value: slotRangeLabel,
+            value:
+                '${SlotLabels.time(a.scheduledStartAt, timezone: timezone)} – '
+                '${SlotLabels.time(a.scheduledEndAt, timezone: timezone)}',
             color: AppColors.textPrimary,
             weight: AppText.medium,
           ),
           (
             label: 'Booking Reference',
-            value: bookingRef,
+            value: a.bookingRef,
             color: AppColors.textStrong,
             weight: AppText.bold,
           ),
           (
             label: 'Token',
-            value: token,
-            color: AppColors.accentBlue,
-            weight: AppText.bold,
+            value: a.tokenLabel ?? 'Assigned by the hospital',
+            color: a.tokenLabel == null
+                ? AppColors.textMuted
+                : AppColors.accentBlue,
+            weight: a.tokenLabel == null ? AppText.regular : AppText.bold,
           ),
         ];
 
@@ -121,11 +96,7 @@ class ConfirmSummary extends StatelessWidget {
             ),
             child: Row(
               children: [
-                AppAvatar(
-                  name: doctor.name,
-                  imageAsset: doctor.imageAsset,
-                  size: 52,
-                ),
+                AppAvatar(name: a.doctorName, size: 52),
                 SizedBox(width: 12.w),
                 Expanded(
                   child: Column(
@@ -133,7 +104,7 @@ class ConfirmSummary extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        doctor.name,
+                        a.doctorName,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.poppins(
@@ -144,7 +115,7 @@ class ConfirmSummary extends StatelessWidget {
                       ),
                       SizedBox(height: 2.h),
                       Text(
-                        doctor.title,
+                        [?a.doctorTitle, ?a.doctorSpecialisation].join(' · '),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.poppins(

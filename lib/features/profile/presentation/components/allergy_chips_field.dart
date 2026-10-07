@@ -219,7 +219,7 @@ class _AllergyChip extends StatelessWidget {
                   // chip without making the chip itself huge.
                   padding: EdgeInsets.all(6.w),
                   child: AppIcon(
-                    MedIcon.close,
+                    PhIcon.x,
                     size: 12,
                     color: AppColors.dangerText,
                   ),

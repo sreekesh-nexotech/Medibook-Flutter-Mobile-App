@@ -6,50 +6,52 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/config/constants.dart';
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
+import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/medical_record.dart';
-import '../../../../core/mock_data/stores/documents_store.dart';
+import '../../../../core/network/connectivity/connectivity_monitor.dart';
+import '../../../../core/error/error_view.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_refresh.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
-import '../../../../core/widgets/app_tab_header.dart';
-import '../../../../core/widgets/states/app_empty_view.dart';
-import '../../../notifications/presentation/components/notification_bell.dart';
-import '../components/document_filter_chips_row.dart';
-import '../components/record_card.dart';
-import '../controllers/documents_filter_controller.dart';
-import '../controllers/linkable_appointments_provider.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
+import '../../../common/attachments/presentation/components/attachment_upload_tile.dart';
+import '../../application/providers/records_provider.dart';
+import '../../application/states/documents_list_state.dart';
+import '../../domain/entities/medical_document.dart';
+import '../components/document_type_icon.dart';
+import '../components/records_search_field.dart';
+import '../../application/providers/documents_filter_controller.dart';
 import 'documents_filter_sheet.dart';
 
-/// Records tab (`/records`) — the documents library (CM-32 … CM-36).
+/// Records tab (`/records`), laid out as the design's Records screen: the
+/// title with the brand "Add" pill, the title search, the "Filters" chip with the Newest /
+/// Oldest sort pills, the "Recent Records · N records" heading, and the
+/// record cards.
 ///
-/// Lives inside the bottom-nav shell, so it renders no nav bar of its own.
-/// What it adds over the three fixed report cards the audit found:
-///
-/// * the real list from `documentsStoreProvider`, newest first on
-///   `recordedAt` (never on the rendered date string — audit §3.8.3);
-/// * **Upload** (`/documents/upload`) from the header *and* from the empty
-///   state, because a fresh account has zero documents and that empty state is
-///   the first thing a real user sees (§3.2.2 — an empty state must offer the
-///   one thing the user came to do);
-/// * **Filters** by type / patient / date range / linked appointment, with
-///   every active facet as a removable chip plus "Clear all";
-/// * a tap on a card opens the document detail (`/documents/:id`);
-/// * **pull-to-refresh** (§3.9.4 names Records as one of the three feeds users
-///   will try to pull).
-///
-/// The preview and download controls stay honestly stubbed: this build ships
-/// no PDF renderer, storage or share package. See [RecordCard].
+/// The list is `GET /patient/documents` through the three-layer cache
+/// ([documentsListProvider]); filters and sort become query parameters. All
+/// the HIVE affordances render from the state: skeletons on a cold start,
+/// "updating…" while a cached page revalidates, the amber bar for a stale
+/// page, an offline note while showing the saved copy, and an error view
+/// with retry when there is nothing to show.
 class RecordsScreen extends ConsumerWidget {
   const RecordsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final documents = ref.watch(filteredDocumentsProvider);
-    final total = ref.watch(sortedDocumentsProvider).length;
-    final chips = ref.watch(documentFilterChipsProvider);
-    final isFiltered = chips.isNotEmpty;
+    final state = ref.watch(documentsListProvider);
+    final filters = ref.watch(documentsFilterProvider);
+    final sort = ref.watch(documentsSortProvider);
+    final isOnline = ref.watch(isOnlineProvider).valueOrNull ?? true;
+
+    final isSearching = state.query.search != null;
+
+    final heading = isSearching
+        ? 'Search results'
+        : filters.type?.pluralLabel ?? sort.heading;
 
     return ColoredBox(
       color: AppColors.bgApp,
@@ -64,50 +66,57 @@ class RecordsScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              AppTabHeader(
-                title: 'Records',
-                trailing: NotificationBellButton(
-                  onPressed: () => context.push(AppRoutes.notifications),
+              Padding(
+                padding: EdgeInsets.fromLTRB(20.w, 12.h, 20.w, 12.h),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Records',
+                        style: AppText.poppins(
+                          size: AppFontSize.h2,
+                          weight: AppText.bold,
+                          color: AppColors.textStrong,
+                        ),
+                      ),
+                    ),
+                    _AddPill(
+                      onTap: () => context.push(AppRoutes.documentUpload),
+                    ),
+                  ],
                 ),
               ),
-              _ActionRow(
-                shown: documents.length,
-                total: total,
-                isFiltered: isFiltered,
-                onFilter: () => showDocumentsFilterSheet(context),
-                onUpload: () => context.push(AppRoutes.documentUpload),
+              Padding(
+                padding: EdgeInsets.fromLTRB(20.w, 0, 20.w, 12.h),
+                child: const RecordsSearchField(),
               ),
-              DocumentFilterChipsRow(
-                chips: chips,
-                onRemove: (field, {type}) =>
-                    _removeFacet(ref, field, type: type),
-                onClearAll: ref.read(documentsFilterProvider.notifier).clearAll,
+              Padding(
+                padding: EdgeInsets.fromLTRB(20.w, 4.h, 20.w, 12.h),
+                child: Row(
+                  children: [
+                    _FilterChip(
+                      activeCount: filters.activeCount,
+                      onTap: () => showDocumentsFilterSheet(context),
+                    ),
+                    const Spacer(),
+                    for (var i = 0; i < kDocumentSorts.length; i++) ...[
+                      if (i > 0) SizedBox(width: 8.w),
+                      _SortPill(
+                        label: kDocumentSorts[i].label,
+                        on: kDocumentSorts[i] == sort,
+                        onTap: () =>
+                            ref.read(documentsSortProvider.notifier).state =
+                                kDocumentSorts[i],
+                      ),
+                    ],
+                  ],
+                ),
               ),
               Expanded(
-                child: AppRefreshIndicator(
-                  onRefresh: () => _refresh(ref),
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(20.w, 6.h, 20.w, 24.h),
-                    child: documents.isEmpty
-                        ? _EmptyState(
-                            isFiltered: isFiltered,
-                            onUpload: () =>
-                                context.push(AppRoutes.documentUpload),
-                            onClearFilters: ref
-                                .read(documentsFilterProvider.notifier)
-                                .clearAll,
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final document in documents)
-                                Padding(
-                                  padding: EdgeInsets.only(bottom: 16.h),
-                                  child: _DocumentCard(document: document),
-                                ),
-                            ],
-                          ),
-                  ),
+                child: _ListBody(
+                  state: state,
+                  heading: heading,
+                  isOnline: isOnline,
                 ),
               ),
             ],
@@ -116,111 +125,499 @@ class RecordsScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  /// Drop one filter facet — the chip carries which, so removing the patient
-  /// leaves the date range alone.
-  void _removeFacet(
-    WidgetRef ref,
-    DocumentFilterField field, {
-    DocumentType? type,
-  }) {
-    final controller = ref.read(documentsFilterProvider.notifier);
-    switch (field) {
-      case DocumentFilterField.type:
-        if (type != null) controller.removeType(type);
-      case DocumentFilterField.patient:
-        controller.setPatient(null);
-      case DocumentFilterField.dateRange:
-        controller.clearDateRange();
-      case DocumentFilterField.appointment:
-        controller.setAppointment(null);
+/// The scrolling body with its four states.
+class _ListBody extends ConsumerWidget {
+  const _ListBody({
+    required this.state,
+    required this.heading,
+    required this.isOnline,
+  });
+
+  final DocumentsListState state;
+  final String heading;
+  final bool isOnline;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(documentsListProvider.notifier);
+
+    if (state.isLoading && !state.hasData) {
+      return SingleChildScrollView(
+        child: AppSkeletonList(
+          count: 3,
+          padding: EdgeInsets.fromLTRB(20.w, 4.h, 20.w, 20.h),
+        ),
+      );
     }
-  }
 
-  /// Re-derives the list from `documentsStoreProvider`, which is the source of
-  /// truth in this build.
-  ///
-  /// Deliberately does **not** invalidate the store: that would reset it to the
-  /// seed and throw away everything the user uploaded. There is no network
-  /// layer yet, so the gesture re-reads rather than re-fetches; when the
-  /// repository lands this awaits its reload and nothing else changes.
-  Future<void> _refresh(WidgetRef ref) async {
-    ref.invalidate(filteredDocumentsProvider);
-    // Hold the spinner long enough for the pull to read as completing.
-    await Future<void>.delayed(AppConstants.fadeIn);
+    if (state.failure != null && !state.hasData && !state.isLoading) {
+      return AppErrorView(
+        failure: state.failure!,
+        headline: 'We could not load your records',
+        onRetry: controller.retry,
+        secondaryLabel: 'Add record',
+        onSecondary: () => context.push(AppRoutes.documentUpload),
+      );
+    }
+
+    final documents = state.items;
+    final names = ref.watch(documentPersonNamesProvider);
+    final chips = ref.watch(documentFilterChipsProvider);
+    final cachedAt = state.cachedAt;
+    final failure = state.failure;
+    final showsOfflineNote = !isOnline && state.fromCache;
+    // Offline with the saved list on screen, the app-wide bar already says
+    // so; a red "you appear to be offline" here adds nothing.
+    final showsFailure =
+        state.hasData && !(showsOfflineNote && failure is NetworkFailure);
+
+    return AppRefreshIndicator(
+      onRefresh: controller.refresh,
+      child: SingleChildScrollView(
+        physics: appRefreshPhysics,
+        padding: EdgeInsets.fromLTRB(20.w, 4.h, 20.w, 20.h),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Offline is said once, by the app-wide OfflineBar (offline
+            // audit, 6 Oct); the stale line is for online use.
+            if (!showsOfflineNote && state.isStale && cachedAt != null) ...[
+              AppErrorBanner(
+                message:
+                    'Data from ${AppDates.relativeAgo(cachedAt)} • '
+                    'Tap to refresh',
+                onTap: controller.refresh,
+              ),
+              SizedBox(height: 12.h),
+            ],
+            if (failure != null && showsFailure) ...[
+              AppErrorBanner(
+                message: failure.userMessage,
+                tone: AppBannerTone.danger,
+                iconName: PhIcon.xCircle,
+                onTap: controller.retry,
+              ),
+              SizedBox(height: 12.h),
+            ],
+            if (state.revalidating) ...[
+              const _UpdatingRow(),
+              SizedBox(height: 8.h),
+            ],
+            if (chips.isNotEmpty) ...[
+              _ActiveChips(chips: chips),
+              SizedBox(height: 12.h),
+            ],
+            Padding(
+              padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(
+                    child: Text(
+                      heading,
+                      style: AppText.poppins(
+                        size: AppFontSize.h3,
+                        weight: AppText.bold,
+                        color: AppColors.textStrong,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    state.total == 1 ? '1 record' : '${state.total} records',
+                    style: AppText.poppins(
+                      size: AppFontSize.sm,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (documents.isEmpty)
+              _EmptyState(
+                isFiltered: state.query.hasFilters,
+                search: state.query.search,
+                onClearSearch: ref.read(documentsSearchProvider.notifier).clear,
+                onClearFilters: ref
+                    .read(documentsFilterProvider.notifier)
+                    .clearAll,
+                onAdd: () => context.push(AppRoutes.documentUpload),
+              )
+            else ...[
+              for (var i = 0; i < documents.length; i++) ...[
+                if (i > 0) SizedBox(height: 16.h),
+                _RecordCard(
+                  record: documents[i],
+                  patientName: names[documents[i].personId] ?? 'Family member',
+                  onOpen: () =>
+                      context.push(AppRoutes.documentPath(documents[i].id)),
+                ),
+              ],
+              if (state.hasNext) ...[
+                SizedBox(height: 16.h),
+                AppButton(
+                  label: 'Load more',
+                  variant: AppButtonVariant.secondary,
+                  size: AppButtonSize.md,
+                  pill: true,
+                  fullWidth: true,
+                  loading: state.isLoadingMore,
+                  semanticLabel: 'Load more records',
+                  onPressed: state.isLoadingMore ? null : controller.loadMore,
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
-/// The count + Filter + Upload row under the tab header.
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
-    required this.shown,
-    required this.total,
-    required this.isFiltered,
-    required this.onFilter,
-    required this.onUpload,
-  });
-
-  final int shown;
-  final int total;
-  final bool isFiltered;
-  final VoidCallback onFilter;
-  final VoidCallback onUpload;
+/// The non-intrusive "updating…" line for a warm start.
+class _UpdatingRow extends StatelessWidget {
+  const _UpdatingRow();
 
   @override
   Widget build(BuildContext context) {
-    final label = isFiltered
-        ? '$shown of $total documents'
-        : total == 1
-        ? '1 document'
-        : '$total documents';
+    return Row(
+      children: [
+        const AppInlineLoader(size: 14),
+        SizedBox(width: 8.w),
+        Text(
+          'Updating…',
+          style: AppText.poppins(
+            size: AppFontSize.xs,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20.w, 0, 20.w, 12.h),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'My documents',
-                  style: AppText.poppins(
-                    size: AppFontSize.body,
-                    weight: AppText.semibold,
-                    color: AppColors.textStrong,
+/// The removable filter chips above the list (CM-34).
+class _ActiveChips extends ConsumerWidget {
+  const _ActiveChips({required this.chips});
+
+  final List<DocumentFilterChip> chips;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(documentsFilterProvider.notifier);
+    return Wrap(
+      spacing: 8.w,
+      runSpacing: 8.h,
+      children: [
+        for (final chip in chips)
+          Semantics(
+            button: true,
+            label: 'Remove filter ${chip.field.label}: ${chip.label}',
+            child: ExcludeSemantics(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => switch (chip.field) {
+                  DocumentFilterField.type => controller.clearType(),
+                  DocumentFilterField.patient => controller.setPerson(null),
+                  DocumentFilterField.dateRange => controller.clearDateRange(),
+                  DocumentFilterField.appointment => controller.setAppointment(
+                    null,
+                  ),
+                },
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12.w,
+                    vertical: 6.h,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceTint,
+                    borderRadius: AppRadii.pill,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // A visit chip names the doctor, day and hospital; it
+                      // wraps rather than running off the screen.
+                      Flexible(
+                        child: Text(
+                          '${chip.field.label}: ${chip.label}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.poppins(
+                            size: AppFontSize.xs,
+                            weight: AppText.medium,
+                            color: AppColors.brand,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 6.w),
+                      AppIcon(PhIcon.x, size: 12, color: AppColors.brand),
+                    ],
                   ),
                 ),
-                SizedBox(height: 2.h),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The brand "Add" pill.
+class _AddPill extends StatelessWidget {
+  const _AddPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Add a record',
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+            decoration: BoxDecoration(
+              color: AppColors.brand,
+              borderRadius: AppRadii.pill,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(PhIcon.plus, size: 16, color: AppColors.textOnBrand),
+                SizedBox(width: 8.w),
                 Text(
-                  label,
+                  'Add',
                   style: AppText.poppins(
-                    size: AppFontSize.xs,
-                    color: AppColors.textMuted,
+                    size: AppFontSize.sm,
+                    weight: AppText.semibold,
+                    color: AppColors.textOnBrand,
                   ),
                 ),
               ],
             ),
           ),
-          SizedBox(width: 10.w),
-          AppButton(
-            label: 'Filter',
-            variant: AppButtonVariant.secondary,
-            size: AppButtonSize.sm,
-            pill: true,
-            semanticLabel: isFiltered
-                ? 'Filter documents, filters active'
-                : 'Filter documents',
-            onPressed: onFilter,
+        ),
+      ),
+    );
+  }
+}
+
+/// The "Filters" chip; brand with "Filters · n" once anything is active.
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.activeCount, required this.onTap});
+
+  final int activeCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = activeCount > 0;
+    final fg = on ? AppColors.textOnBrand : AppColors.textBody;
+    return Semantics(
+      button: true,
+      label: on ? 'Filter records, $activeCount active' : 'Filter records',
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            height: 46.h,
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            decoration: BoxDecoration(
+              color: on ? AppColors.brand : AppColors.surface,
+              borderRadius: AppRadii.pill,
+              border: Border.all(
+                color: on ? AppColors.brand : AppColors.border,
+                width: 1.w,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(PhIcon.funnelSimple, size: 16, color: fg),
+                SizedBox(width: 8.w),
+                Text(
+                  on ? 'Filters · $activeCount' : 'Filters',
+                  style: AppText.poppins(
+                    size: AppFontSize.sm,
+                    weight: AppText.medium,
+                    color: fg,
+                  ),
+                ),
+              ],
+            ),
           ),
-          SizedBox(width: 8.w),
-          AppButton(
-            label: 'Upload',
-            size: AppButtonSize.sm,
-            pill: true,
-            semanticLabel: 'Upload a document',
-            onPressed: onUpload,
+        ),
+      ),
+    );
+  }
+}
+
+class _SortPill extends StatelessWidget {
+  const _SortPill({required this.label, required this.on, required this.onTap});
+
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: on,
+      label: 'Sort by $label',
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            height: 46.h,
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: on ? AppColors.brand : AppColors.surface,
+              borderRadius: AppRadii.pill,
+              border: Border.all(
+                color: on ? AppColors.brand : AppColors.border,
+                width: 1.w,
+              ),
+            ),
+            child: Text(
+              label,
+              style: AppText.poppins(
+                size: AppFontSize.sm,
+                weight: AppText.medium,
+                color: on ? AppColors.textOnBrand : AppColors.textBody,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One record: the tinted folder tile beside the title, "patient · kind",
+/// "date · size", then a hairline footer with the file name and "Open".
+class _RecordCard extends StatelessWidget {
+  const _RecordCard({
+    required this.record,
+    required this.patientName,
+    required this.onOpen,
+  });
+
+  final MedicalDocument record;
+  final String patientName;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final file = record.file;
+    return AppCard(
+      onTap: onOpen,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 52.w,
+                height: 64.h,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceTint,
+                  borderRadius: AppRadii.sm,
+                ),
+                // The document's own type, as on its detail screen and in the
+                // filters — not one folder for every kind.
+                child: AppIcon(
+                  DocumentTypeIcon.of(record.docType),
+                  size: 24,
+                  color: AppColors.brand,
+                ),
+              ),
+              SizedBox(width: 16.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      record.title,
+                      style: AppText.poppins(
+                        size: AppFontSize.body,
+                        weight: AppText.semibold,
+                        color: AppColors.textPrimary,
+                        height: 1.35,
+                      ),
+                    ),
+                    SizedBox(height: 8.h),
+                    Text(
+                      '$patientName · ${record.docType.label}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.poppins(
+                        size: AppFontSize.sm,
+                        color: AppColors.textBody,
+                      ),
+                    ),
+                    SizedBox(height: 3.h),
+                    Text(
+                      '${AppDates.dayMonthYear(record.documentDate)} · '
+                      '${formatFileSize(file.sizeBytes)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.poppins(
+                        size: AppFontSize.xs,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Container(
+            margin: EdgeInsets.only(top: 16.h),
+            padding: EdgeInsets.only(top: 12.h),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppColors.borderSubtle, width: 1.h),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    file.originalName.isEmpty
+                        ? file.extension.toUpperCase()
+                        : file.originalName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.poppins(
+                      size: AppFontSize.xs,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                AppButton(
+                  label: 'Open',
+                  pill: true,
+                  expandHitArea: false,
+                  semanticLabel: 'Open ${record.title}',
+                  onPressed: onOpen,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -228,66 +625,94 @@ class _ActionRow extends StatelessWidget {
   }
 }
 
-/// One card, with its linked appointment label resolved.
-class _DocumentCard extends ConsumerWidget {
-  const _DocumentCard({required this.document});
-
-  final MedicalRecord document;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appointmentId = document.appointmentId;
-    final linked = appointmentId == null
-        ? null
-        : ref.watch(linkableAppointmentByIdProvider(appointmentId));
-
-    return RecordCard(
-      record: document,
-      linkedAppointmentLabel: linked?.label,
-      onOpen: () => context.push(AppRoutes.documentPath(document.id)),
-      onView: () => showStubbedToast(context, ref, 'Preview'),
-      onDownload: () => showStubbedToast(context, ref, 'Download'),
-    );
-  }
-}
-
-/// Two different empties, because they need two different ways out: a fresh
-/// account has nothing to show and should be pointed at Upload, while a
-/// filtered-to-nothing list should be pointed at clearing the filters.
+/// "No records here" / "No records yet".
 class _EmptyState extends StatelessWidget {
   const _EmptyState({
     required this.isFiltered,
-    required this.onUpload,
+    required this.search,
+    required this.onClearSearch,
     required this.onClearFilters,
+    required this.onAdd,
   });
 
   final bool isFiltered;
-  final VoidCallback onUpload;
+
+  /// The title being searched for, or null when there is no search.
+  final String? search;
+  final VoidCallback onClearSearch;
   final VoidCallback onClearFilters;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
-    if (isFiltered) {
-      return AppEmptyView(
-        iconName: MedIcon.records,
-        headline: 'No documents match these filters',
-        body:
-            'Widen the date range or clear the filters to see everything '
-            'on the account.',
-        actionLabel: 'Clear filters',
-        onAction: onClearFilters,
-        secondaryLabel: 'Upload a document',
-        onSecondary: onUpload,
-      );
-    }
-    return AppEmptyView(
-      iconName: MedIcon.records,
-      headline: 'No documents yet',
-      body:
-          'Keep lab reports, prescriptions, scans and invoices in one '
-          'place so you have them at your next visit.',
-      actionLabel: 'Upload a document',
-      onAction: onUpload,
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 50.h),
+      child: Column(
+        children: [
+          Container(
+            width: 64.r,
+            height: 64.r,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceTint,
+              shape: BoxShape.circle,
+            ),
+            child: AppIcon(PhIcon.folder, size: 30, color: AppColors.brand),
+          ),
+          SizedBox(height: 12.h),
+          Text(
+            isFiltered ? 'No records here' : 'No records yet',
+            textAlign: TextAlign.center,
+            style: AppText.poppins(
+              size: AppFontSize.body,
+              weight: AppText.semibold,
+              color: AppColors.textStrong,
+            ),
+          ),
+          SizedBox(height: 12.h),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 250.w),
+            child: Text(
+              search != null
+                  ? 'No record has “$search” in its title. Check the '
+                        'spelling or clear the search.'
+                  : isFiltered
+                  ? 'Nothing matches this filter yet. Add a paper report or '
+                        'clear the filters.'
+                  : 'Upload a lab report, prescription or scan and it is '
+                        'here whenever you need it.',
+              textAlign: TextAlign.center,
+              style: AppText.poppins(
+                size: AppFontSize.sm,
+                color: AppColors.textMuted,
+                height: 1.5,
+              ),
+            ),
+          ),
+          SizedBox(height: 16.h),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isFiltered) ...[
+                AppButton(
+                  label: search != null ? 'Clear search' : 'Clear filters',
+                  variant: AppButtonVariant.secondary,
+                  size: AppButtonSize.sm,
+                  pill: true,
+                  onPressed: search != null ? onClearSearch : onClearFilters,
+                ),
+                SizedBox(width: 12.w),
+              ],
+              AppButton(
+                label: 'Add record',
+                size: AppButtonSize.sm,
+                pill: true,
+                onPressed: onAdd,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

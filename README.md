@@ -26,22 +26,24 @@ the one place to look to know how a build was configured.
 | Define | Default | What it does |
 |---|---|---|
 | `MEDIBOOK_ENV` | `dev` | Environment/flavour: `dev` \| `stg` \| `prod` |
-| `MEDIBOOK_API_BASE_URL` | `https://dev-api.medibook.app` | API origin, no trailing slash |
-| `MEDIBOOK_DEMO` | `true` | Demo affordances: prefilled credentials, the "Demo code: 1234" hint, the reviewer screen-jump menu |
+| `MEDIBOOK_API_BASE_URL` | `https://62.171.151.149:8443` | API origin, no trailing slash and no `/api/v1` (the client adds it). Default is the integration server |
+| `MEDIBOOK_DEMO` | `false` | Demo affordances (prefilled credentials, the "Demo code" hint). Off: the app talks to the real API |
+| `MEDIBOOK_ALLOW_BAD_CERT` | `true` | Accept the integration server's self-signed certificate. A production build refuses to start with this on |
 | `MEDIBOOK_BANNER_AUTOROTATE` | `true` | Home promo-banner auto-rotation |
 | `MEDIBOOK_ANALYTICS` | `false` | Forward analytics events to a backend |
-| `MEDIBOOK_CRASH_REPORTING` | `false` | Forward crashes to a backend |
-| `MEDIBOOK_SENTRY_DSN` | *(empty)* | Crash-reporter DSN. Supplied by CI from a secret — never committed |
+| `MEDIBOOK_CRASH_REPORTING` | `false` | Forward crashes to Sentry. Needs `MEDIBOOK_SENTRY_DSN` as well |
+| `MEDIBOOK_SENTRY_DSN` | *(empty)* | Sentry DSN. Supplied by CI from a secret, or locally from `dart_defines.local.json` — never committed |
 | `MEDIBOOK_VERBOSE_LOGS` | `false` | Raise the log floor to `debug` in a profile build |
 
-### Turning demo mode off for a release
+### Backend
 
-**This build defaults to demo mode on**, because it is the client-review
-prototype. A release build must turn it off:
-
-```sh
-flutter build apk --release --dart-define=MEDIBOOK_DEMO=false
-```
+The app is wired to the Medibook patient API (`docs-flutter/FLUTTER_API_INTEGRATION.md`
+is the contract; `docs/INTEGRATION-CORE.md` describes the app-side plumbing;
+`docs/FLUTTER_INTEGRATION_GAPS.md` lists what the staging server could not
+satisfy in round 1, and `docs/FLUTTER_INTEGRATION_GAPS_ROUND_2.md` what is
+still open after the backend's fixes of 2026-10-01).
+`flutter run` with no defines talks to the integration server. A review build
+that must work without a backend passes `--dart-define=MEDIBOOK_DEMO=true`.
 
 A full production build:
 
@@ -50,12 +52,76 @@ flutter build apk --release \
   --dart-define=MEDIBOOK_ENV=prod \
   --dart-define=MEDIBOOK_API_BASE_URL=https://api.medibook.app \
   --dart-define=MEDIBOOK_DEMO=false \
-  --dart-define=MEDIBOOK_CRASH_REPORTING=true
+  --dart-define=MEDIBOOK_ALLOW_BAD_CERT=false \
+  --dart-define=MEDIBOOK_CRASH_REPORTING=true \
+  --dart-define=MEDIBOOK_SENTRY_DSN="$SENTRY_DSN" \
+  --obfuscate \
+  --split-debug-info=build/symbols
 ```
 
+`--obfuscate` hides Dart class and method names in the binary; the symbols it
+writes to `build/symbols` are needed to read crash stack traces, so archive
+them privately with each release (never ship or commit them). Android's R8
+shrinking and obfuscation are already on for release builds.
+
 `EnvLoader.validate()` runs during bootstrap and **refuses to start a
-production build** that still has demo mode on, or that points at a non-HTTPS
-API — so a forgotten flag fails at launch rather than after release.
+production build** that still has demo mode or certificate bypass on, or that
+points at a non-HTTPS API — so a forgotten flag fails at launch rather than
+after release.
+
+To run against a backend on this machine from the Android emulator (debug builds
+allow cleartext to the host — `android/app/src/debug/res/xml/network_security_config.xml`):
+
+```sh
+flutter run -d emulator-5554 --dart-define=MEDIBOOK_API_BASE_URL=http://10.0.2.2:8000
+```
+
+Live end-to-end checks against the server (opt-in, needs the test account):
+
+```sh
+MEDIBOOK_LIVE_BASE_URL=https://62.171.151.149:8443 \
+MEDIBOOK_LIVE_IDENTIFIER=<email or +91…> MEDIBOOK_LIVE_PASSWORD=<password> \
+flutter test test/integration/live_backend_test.dart
+```
+
+## Crash reporting (Sentry)
+
+`lib/app/monitoring/crash_reporting.dart` owns it. Sentry starts during
+bootstrap only when a build passes **both** `MEDIBOOK_CRASH_REPORTING=true` and
+a `MEDIBOOK_SENTRY_DSN`; otherwise reports go to the local logger and nothing
+leaves the device. Events are tagged with `MEDIBOOK_ENV`, and screenshots,
+default PII and Session Replay are off — this is a patient app.
+
+The DSN is not committed. Locally it lives in `dart_defines.local.json`
+(git-ignored) at the repo root:
+
+```json
+{
+  "MEDIBOOK_CRASH_REPORTING": true,
+  "MEDIBOOK_SENTRY_DSN": "https://<key>@<org>.ingest.us.sentry.io/<project>"
+}
+```
+
+```sh
+flutter run --dart-define-from-file=dart_defines.local.json
+```
+
+CI passes the same two defines from its secret store.
+
+## In-app updates (Android)
+
+`lib/features/app_update/` drives Google Play's in-app update API. It checks at
+launch and whenever the app returns to the foreground:
+
+* An install **below `min_versions.android`** from `GET /shared/app-config`
+  gets Play's full-screen *immediate* update. Backing out leaves the app behind
+  an "Update required" screen.
+* Any other update is *flexible*: it downloads in the background, then a
+  dialog offers the restart. "Later" holds until the next launch.
+
+Play only answers for a build installed from Google Play (internal testing
+track or above), so debug and sideloaded builds skip the check silently. iOS
+has no equivalent API and is not covered.
 
 ## Platform identity
 
@@ -105,3 +171,8 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze
 flutter test
 ```
+
+Widget and golden tests pump real screens behind `test/support/offline_overrides.dart`
+(an offline `CachedFetcher`, no-op WebSockets), so they never touch the network;
+screen goldens are the offline/empty states. The QC capture rig
+(`test/qc/capture_screens_test.dart`) is opt-in via `MEDIBOOK_SHOT_DIR`.

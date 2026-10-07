@@ -8,55 +8,62 @@ import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
-import '../../../../core/mock_data/models/app_notification.dart';
-import '../../../../core/mock_data/models/appointment.dart';
-import '../../../../core/mock_data/stores/notifications_store.dart';
+import '../../../../core/network/connectivity/connectivity_monitor.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_inner_header.dart';
 import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/app_segmented_tabs.dart';
-import '../../../../core/widgets/app_stub_notice.dart';
 import '../../../../core/widgets/states/app_empty_view.dart';
+import '../../../../core/widgets/states/app_error_view.dart';
+import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
-import '../../../appointments/presentation/controllers/appointments_controller.dart';
+import '../../application/providers/notifications_provider.dart';
+import '../../application/states/notifications_state.dart';
+import '../../application/usecases/notification_target.dart';
+import '../../domain/entities/notification.dart';
 import '../components/notification_card.dart';
 import '../components/notification_kind_style.dart';
-import '../controllers/notifications_filter_controller.dart';
+import '../../application/providers/notifications_filter_controller.dart';
 
-/// Notifications (`/notifications`, pushed) — CM-40 … CM-43.
+/// Notifications (`/notifications`, pushed) — CM-40 … CM-43, over
+/// `GET /patient/notifications` (§12.1).
 ///
-/// What this screen adds over the four fixed cards the audit found:
-///
-/// * **Unread state is real.** `AppNotification.read` drives a visibly
-///   different card, the bell's count badge, tap-to-read, and a long-press
-///   toggle back to unread.
-/// * **"Mark all as read" actually marks things read.** That was audit
-///   §3.1.3 — *"reports success and changes nothing"*. `markAllRead()` returns
-///   **how many changed**, and the toast is built from that number: 1 → "1
-///   notification marked as read", 3 → "3 notifications marked as read", 0 →
-///   the control is disabled and says why, so a second press cannot claim a
-///   success. The cards behind it change in the same frame, because they read
-///   the same store.
-/// * **Kinds are distinguishable.** Confirmation / reminder / change /
-///   cancellation / general each get their own glyph, tint and badge, and can
-///   be filtered to. With no kind filter the list is grouped Unread first,
-///   then Earlier.
-/// * **Pull-to-refresh** (§3.9.4 names Notifications as one of the three feeds
-///   users will try to pull) and a first-class empty state (§3.2.2).
-///
-/// Sorting and filtering run on `createdAt` and `kind`, never on the rendered
-/// `ago` string (§3.8.3).
+/// * **Filters are the server's.** The All / Unread / Read tabs send
+///   `unread=`, the kind chips send `kind=`, and each change is one request
+///   (cached first, then the network).
+/// * **Read state is the server's.** Tap → `POST /{id}/read`; long-press →
+///   `/unread` or `DELETE`; "Mark all as read" → `read-all`, and the toast is
+///   built from its `updated_count` — never a success that did not happen.
+/// * **Tapping opens the right screen** by `data.event` (§12.1).
+/// * **The badge is live.** New notifications arriving on the inbox socket
+///   re-fetch the list.
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifications = ref.watch(filteredNotificationsProvider);
-    final unreadCount = ref.watch(unreadNotificationCountProvider);
     final filters = ref.watch(notificationsFilterProvider);
-    final counts = ref.watch(notificationKindCountsProvider);
-    final total = ref.watch(notificationsStoreProvider).length;
+    final query = ref.watch(notificationsQueryProvider);
+    final list = ref.watch(notificationsListProvider(query));
+    final unreadCount = ref.watch(unreadNotificationCountProvider);
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
+
+    // Something new arrived — a `notification.created` frame, or the unread
+    // count going up (on this server mostly the count, re-read after the
+    // socket drops) → re-fetch past the cache, so the list on screen shows
+    // what the badge just counted (BL-NOTIF-014: a plain load was answered
+    // from the copy already checked on this visit).
+    void reload() => ref
+        .read(notificationsListProvider(query).notifier)
+        .load(forceRefresh: true);
+    ref.listen(inboxProvider.select((s) => s.lastCreatedId), (previous, next) {
+      if (next != null && next != previous) reload();
+    });
+    ref.listen(unreadNotificationCountProvider, (previous, next) {
+      if (previous != null && next > previous) reload();
+    });
 
     return Scaffold(
       backgroundColor: AppColors.bgApp,
@@ -81,7 +88,7 @@ class NotificationsScreen extends ConsumerWidget {
               ),
               _HeaderRow(
                 unreadCount: unreadCount,
-                onMarkAllRead: () => _markAllRead(context, ref),
+                onMarkAllRead: () => _markAllRead(context, ref, query),
               ),
               Padding(
                 padding: EdgeInsets.fromLTRB(
@@ -98,39 +105,47 @@ class NotificationsScreen extends ConsumerWidget {
                   active: filters.read.label,
                   onChanged: (label) => ref
                       .read(notificationsFilterProvider.notifier)
-                      .setRead(_readFilterFor(label)),
+                      .setRead(NotificationReadFilter.fromLabel(label)),
                 ),
               ),
               _KindChipsRow(
-                counts: counts,
                 selected: filters.kind,
                 onToggle: ref
                     .read(notificationsFilterProvider.notifier)
                     .toggleKind,
               ),
+              // Offline is said once, by the app-wide OfflineBar.
+              if (online && list.hasRowsAndFailure)
+                AppErrorBanner(
+                  message: 'Could not update — ${list.failure!.userMessage}',
+                  tone: AppBannerTone.danger,
+                  iconName: PhIcon.xCircle,
+                  onTap: () => _refresh(ref, query),
+                )
+              else if (list.isStale)
+                AppErrorBanner(
+                  message: list.cachedAt == null
+                      ? 'This may be out of date • Tap to refresh'
+                      : 'Data from ${AppDates.relativeAgo(list.cachedAt!)} • '
+                            'Tap to refresh',
+                  onTap: () => _refresh(ref, query),
+                )
+              else if (list.revalidating && list.items.isNotEmpty)
+                const AppErrorBanner(
+                  message: 'Updating…',
+                  tone: AppBannerTone.info,
+                ),
               Expanded(
                 child: AppRefreshIndicator(
-                  onRefresh: () => _refresh(ref),
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.x5.w,
-                      6.h,
-                      AppSpacing.x5.w,
-                      24.h,
-                    ),
-                    child: notifications.isEmpty
-                        ? _EmptyState(
-                            isFiltered: filters.isActive && total > 0,
-                            onClearFilters: ref
-                                .read(notificationsFilterProvider.notifier)
-                                .clearAll,
-                            onBook: () =>
-                                context.push(AppRoutes.bookingPath(step: 1)),
-                          )
-                        : _NotificationList(
-                            notifications: notifications,
-                            grouped: !filters.isActive,
-                          ),
+                  onRefresh: () => _refresh(ref, query),
+                  child: _Body(
+                    query: query,
+                    list: list,
+                    isFiltered: filters.isActive,
+                    onClearFilters: ref
+                        .read(notificationsFilterProvider.notifier)
+                        .clearAll,
+                    onBook: () => context.push(AppRoutes.bookingPath(step: 1)),
                   ),
                 ),
               ),
@@ -141,42 +156,38 @@ class NotificationsScreen extends ConsumerWidget {
     );
   }
 
-  static NotificationReadFilter _readFilterFor(String label) {
-    for (final option in NotificationReadFilter.values) {
-      if (option.label == label) return option;
-    }
-    return NotificationReadFilter.all;
-  }
-
-  /// Marks every notification read and reports **what actually changed**.
-  ///
-  /// `markAllRead()` returns the number of records it flipped, so a second
-  /// press returns 0 and gets told there was nothing to do — the control can
-  /// no longer claim a success it did not perform (audit §3.1.3).
-  void _markAllRead(BuildContext context, WidgetRef ref) {
-    final changed = ref.read(notificationsStoreProvider.notifier).markAllRead();
+  /// `POST read-all` and report **what actually changed** — `updated_count`.
+  Future<void> _markAllRead(
+    BuildContext context,
+    WidgetRef ref,
+    NotificationListQuery query,
+  ) async {
+    final result = await ref
+        .read(notificationsListProvider(query).notifier)
+        .markAllRead();
+    if (!context.mounted) return;
     final toast = ref.read(toastControllerProvider.notifier);
-    if (changed == 0) {
-      toast.show('Everything is already read');
+    final failure = result.failure;
+    if (failure != null) {
+      toast.show(failure.userMessage);
       return;
     }
-    toast.show(
-      changed == 1
-          ? '1 notification marked as read'
-          : '$changed notifications marked as read',
-    );
+    final changed = result.updated ?? 0;
+    ref.read(inboxProvider.notifier).setCount(0);
+    toast.show(switch (changed) {
+      0 => 'Everything is already read',
+      1 => '1 notification marked as read',
+      _ => '$changed notifications marked as read',
+    });
   }
 
-  /// Re-derives the list from `notificationsStoreProvider`, the source of truth
-  /// in this build.
-  ///
-  /// Deliberately does **not** invalidate the store: that would reset it to the
-  /// seed and undo everything the user has read or dismissed. There is no
-  /// network layer yet, so the gesture re-reads rather than re-fetches; when
-  /// the repository lands this awaits its reload.
-  Future<void> _refresh(WidgetRef ref) async {
-    ref.invalidate(filteredNotificationsProvider);
-    await Future<void>.delayed(AppConstants.fadeIn);
+  Future<void> _refresh(WidgetRef ref, NotificationListQuery query) async {
+    await Future.wait([
+      ref
+          .read(notificationsListProvider(query).notifier)
+          .load(forceRefresh: true),
+      ref.read(inboxProvider.notifier).refresh(),
+    ]);
   }
 
   void _goBack(BuildContext context) {
@@ -232,8 +243,8 @@ class _HeaderRow extends StatelessWidget {
             label: 'Mark all as read',
             variant: AppButtonVariant.ghost,
             size: AppButtonSize.sm,
-            // Disabled with the reason in the label, rather than a button that
-            // reports a success it cannot perform (audit §3.1.3).
+            // Disabled with the reason in the label, rather than a button
+            // that reports a success it cannot perform (audit §3.1.3).
             disabled: !hasUnread,
             semanticLabel: hasUnread
                 ? 'Mark all $unreadCount unread notifications as read'
@@ -246,58 +257,44 @@ class _HeaderRow extends StatelessWidget {
   }
 }
 
-/// The kind filter chips. Only kinds the account actually has are offered, so
-/// the row never proposes a filter that yields nothing.
+/// The kind filter chips — the six backend kinds (§17). Tapping the selected
+/// one clears the filter, so the row is its own way back to the whole list.
 class _KindChipsRow extends StatelessWidget {
-  const _KindChipsRow({
-    required this.counts,
-    required this.selected,
-    required this.onToggle,
-  });
+  const _KindChipsRow({required this.selected, required this.onToggle});
 
-  final Map<NotificationKind, int> counts;
   final NotificationKind? selected;
   final ValueChanged<NotificationKind> onToggle;
 
   @override
   Widget build(BuildContext context) {
-    final kinds = [
-      for (final kind in NotificationKind.values)
-        if ((counts[kind] ?? 0) > 0) kind,
-    ];
-    if (kinds.length < 2) return const SizedBox.shrink();
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(AppSpacing.x5.w, 0, AppSpacing.x5.w, 10.h),
-      child: Wrap(
-        spacing: 8.w,
-        runSpacing: 8.h,
-        children: [
-          for (final kind in kinds)
-            _KindChip(
-              kind: kind,
-              count: counts[kind] ?? 0,
-              isSelected: kind == selected,
-              onTap: () => onToggle(kind),
-            ),
-        ],
+    return SizedBox(
+      height: 44.h,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.fromLTRB(AppSpacing.x5.w, 0, AppSpacing.x5.w, 10.h),
+        itemCount: NotificationKind.values.length,
+        separatorBuilder: (_, _) => SizedBox(width: 8.w),
+        itemBuilder: (context, index) {
+          final kind = NotificationKind.values[index];
+          return _KindChip(
+            kind: kind,
+            isSelected: kind == selected,
+            onTap: () => onToggle(kind),
+          );
+        },
       ),
     );
   }
 }
 
-/// One kind chip. Tapping the selected one clears the filter, so the row is
-/// its own way back to the whole list.
 class _KindChip extends StatelessWidget {
   const _KindChip({
     required this.kind,
-    required this.count,
     required this.isSelected,
     required this.onTap,
   });
 
   final NotificationKind kind;
-  final int count;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -309,8 +306,8 @@ class _KindChip extends StatelessWidget {
       button: true,
       selected: isSelected,
       label: isSelected
-          ? 'Showing ${kind.label} only, $count. Tap to show every kind'
-          : '${kind.label}, $count. Tap to show only these',
+          ? 'Showing ${kind.label} only. Tap to show every kind'
+          : '${kind.label}. Tap to show only these',
       child: ExcludeSemantics(
         child: Material(
           color: isSelected
@@ -321,7 +318,6 @@ class _KindChip extends StatelessWidget {
             onTap: onTap,
             borderRadius: AppRadii.pill,
             child: Container(
-              // Minimum, not fixed: the chip grows with the OS text scale.
               constraints: BoxConstraints(minHeight: 34.h),
               padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
               decoration: BoxDecoration(
@@ -341,7 +337,7 @@ class _KindChip extends StatelessWidget {
                   ),
                   SizedBox(width: 6.w),
                   Text(
-                    '${kind.label} · $count',
+                    kind.label,
                     style: AppText.poppins(
                       size: AppFontSize.xs,
                       weight: AppText.medium,
@@ -358,51 +354,116 @@ class _KindChip extends StatelessWidget {
   }
 }
 
-/// The list itself, optionally grouped Unread / Earlier.
-///
-/// Each card is swipe-to-dismiss as well as long-press-to-act: the swipe is
-/// fast for people who know it, the long-press sheet is discoverable for
-/// everyone else.
-class _NotificationList extends ConsumerWidget {
-  const _NotificationList({required this.notifications, required this.grouped});
+/// The list in its four states: skeleton, error, empty, rows (grouped
+/// Unread / Earlier when no filter is active) with load-more at the bottom.
+class _Body extends ConsumerWidget {
+  const _Body({
+    required this.query,
+    required this.list,
+    required this.isFiltered,
+    required this.onClearFilters,
+    required this.onBook,
+  });
 
-  final List<AppNotification> notifications;
-
-  /// Split into Unread / Earlier. Off while a filter is active, since the
-  /// filter already says what the list is.
-  final bool grouped;
+  final NotificationListQuery query;
+  final NotificationsListState list;
+  final bool isFiltered;
+  final VoidCallback onClearFilters;
+  final VoidCallback onBook;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (!grouped) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [for (final item in notifications) _Row(notification: item)],
+    if (list.isLoading) return const AppSkeletonList(count: 3);
+
+    final failure = list.failure;
+    if (failure != null && list.items.isEmpty) {
+      return AppErrorView(
+        failure: failure,
+        onRetry: () => ref
+            .read(notificationsListProvider(query).notifier)
+            .load(forceRefresh: true),
       );
     }
+    if (list.items.isEmpty) {
+      return isFiltered
+          ? AppEmptyView(
+              iconName: PhIcon.bell,
+              headline: 'Nothing matches this view',
+              body: 'Try another kind, or switch back to All.',
+              actionLabel: 'Show all notifications',
+              onAction: onClearFilters,
+            )
+          : AppEmptyView(
+              iconName: PhIcon.bell,
+              headline: 'No notifications',
+              body:
+                  'Booking confirmations, reminders and updates to your '
+                  'appointments will show up here.',
+              actionLabel: 'Book an appointment',
+              onAction: onBook,
+            );
+    }
 
-    final unread = [
-      for (final item in notifications)
-        if (item.unread) item,
-    ];
-    final read = [
-      for (final item in notifications)
-        if (item.read) item,
-    ];
+    final grouped = !isFiltered;
+    final unread = grouped
+        ? [
+            for (final item in list.items)
+              if (item.unread) item,
+          ]
+        : list.items;
+    final read = grouped
+        ? [
+            for (final item in list.items)
+              if (item.read) item,
+          ]
+        : const <PatientNotification>[];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (unread.isNotEmpty) ...[
-          _GroupHeading('Unread'),
-          for (final item in unread) _Row(notification: item),
+    return SingleChildScrollView(
+      physics: appRefreshPhysics,
+      padding: EdgeInsets.fromLTRB(AppSpacing.x5.w, 6.h, AppSpacing.x5.w, 24.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (grouped && unread.isNotEmpty) const _GroupHeading('Unread'),
+          for (final item in unread)
+            _Row(
+              query: query,
+              notification: item,
+              busy: list.busyIds.contains(item.id),
+            ),
+          if (grouped && read.isNotEmpty) ...[
+            if (unread.isNotEmpty) SizedBox(height: 8.h),
+            const _GroupHeading('Earlier'),
+            for (final item in read)
+              _Row(
+                query: query,
+                notification: item,
+                busy: list.busyIds.contains(item.id),
+              ),
+          ],
+          if (list.loadMoreFailure != null)
+            AppInlineError(
+              failure: list.loadMoreFailure!,
+              retryLabel: 'Load more',
+              onRetry: () => ref
+                  .read(notificationsListProvider(query).notifier)
+                  .loadMore(),
+            )
+          else if (list.hasNext)
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.h),
+              child: AppButton(
+                label: 'Load more',
+                variant: AppButtonVariant.ghost,
+                fullWidth: true,
+                loading: list.isLoadingMore,
+                onPressed: () => ref
+                    .read(notificationsListProvider(query).notifier)
+                    .loadMore(),
+              ),
+            ),
         ],
-        if (read.isNotEmpty) ...[
-          if (unread.isNotEmpty) SizedBox(height: 8.h),
-          _GroupHeading('Earlier'),
-          for (final item in read) _Row(notification: item),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -429,11 +490,17 @@ class _GroupHeading extends StatelessWidget {
   }
 }
 
-/// One dismissible card, with every callback wired to the store.
+/// One dismissible card, with every callback wired to the controller.
 class _Row extends ConsumerWidget {
-  const _Row({required this.notification});
+  const _Row({
+    required this.query,
+    required this.notification,
+    required this.busy,
+  });
 
-  final AppNotification notification;
+  final NotificationListQuery query;
+  final PatientNotification notification;
+  final bool busy;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -441,105 +508,94 @@ class _Row extends ConsumerWidget {
       padding: EdgeInsets.only(bottom: 14.h),
       child: Dismissible(
         key: ValueKey('notification-${notification.id}'),
-        direction: DismissDirection.endToStart,
+        direction: busy ? DismissDirection.none : DismissDirection.endToStart,
+        // The row only leaves once the server has agreed (see `dismiss`).
+        confirmDismiss: (_) => _remove(context, ref),
         background: const SizedBox.shrink(),
-        secondaryBackground: _DismissBackground(),
-        onDismissed: (_) => _remove(context, ref),
+        secondaryBackground: const _DismissBackground(),
         child: NotificationCard(
           notification: notification,
+          busy: busy,
           onOpen: () => _open(context, ref),
-          onToggleRead: () => _toggleRead(ref),
+          onToggleRead: () => _toggleRead(context, ref),
           onRemove: () => _remove(context, ref),
-          onAction: (action) => _handleAction(context, ref, action),
         ),
       ),
     );
   }
 
-  /// Tapping a card reads it, then follows the notification's own deep link
-  /// when it has one.
-  void _open(BuildContext context, WidgetRef ref) {
+  /// Tapping a card reads it, then follows `data.event` (§12.1).
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
     if (notification.unread) {
-      ref.read(notificationsStoreProvider.notifier).markRead(notification.id);
+      final failure = await ref
+          .read(notificationsListProvider(query).notifier)
+          .markRead(notification.id);
+      if (failure == null) ref.read(inboxProvider.notifier).adjust(-1);
     }
-    final appointmentId = notification.appointmentId;
-    if (appointmentId == null) return;
-    final appointment = ref.read(appointmentByIdProvider(appointmentId));
-    if (appointment == null) {
-      ref
-          .read(toastControllerProvider.notifier)
-          .show('That appointment is no longer on your account');
-      return;
-    }
-    context.push(AppRoutes.appointmentDetailPath(appointmentId));
+    if (!context.mounted) return;
+    _navigate(context, ref, NotificationTargets.of(notification));
   }
 
-  void _toggleRead(WidgetRef ref) {
-    final store = ref.read(notificationsStoreProvider.notifier);
-    if (notification.read) {
-      store.markUnread(notification.id);
-    } else {
-      store.markRead(notification.id);
-    }
-  }
-
-  void _remove(BuildContext context, WidgetRef ref) {
-    ref.read(notificationsStoreProvider.notifier).remove(notification.id);
-    ref
-        .read(toastControllerProvider.notifier)
-        .show('“${notification.title}” removed');
-  }
-
-  void _handleAction(
+  void _navigate(
     BuildContext context,
     WidgetRef ref,
-    NotificationAction action,
+    NotificationTarget target,
   ) {
-    void toast(String message) =>
-        ref.read(toastControllerProvider.notifier).show(message);
-
-    // Acting on a notification reads it — you have clearly seen it.
-    if (notification.unread) {
-      ref.read(notificationsStoreProvider.notifier).markRead(notification.id);
+    switch (target) {
+      case AppointmentDetailTarget(:final appointmentId):
+        context.push(AppRoutes.appointmentDetailPath(appointmentId));
+      case LiveQueueTarget(:final appointmentId):
+        context.push(AppRoutes.queuePath(appointmentId));
+      case ReceiptTarget(:final appointmentId):
+        context.push(AppRoutes.receiptPath(appointmentId));
+      case FamilyMembersTarget():
+        context.push(AppRoutes.dependants);
+      case AccountTarget():
+        context.go(AppRoutes.profile);
+      case DataExportTarget():
+        // The finished file is downloaded from the export screen (§5.7).
+        context.push(AppRoutes.profileDataExport);
+      case SupportTicketTarget(:final ticketId):
+        context.push(
+          ticketId == null
+              ? AppRoutes.supportTickets
+              : AppRoutes.supportTicketPath(ticketId),
+        );
+      case NoTarget():
+        break;
     }
+  }
 
-    /// The appointment this notification is about may have been cancelled
-    /// since it was raised, so the navigation actions check first.
-    bool apptLive(String id) {
-      final appointment = ref.read(appointmentByIdProvider(id));
-      return appointment != null &&
-          appointment.bucket == AppointmentBucket.upcoming;
+  Future<void> _toggleRead(BuildContext context, WidgetRef ref) async {
+    final controller = ref.read(notificationsListProvider(query).notifier);
+    final failure = notification.read
+        ? await controller.markUnread(notification.id)
+        : await controller.markRead(notification.id);
+    if (!context.mounted) return;
+    if (failure != null) {
+      ref.read(toastControllerProvider.notifier).show(failure.userMessage);
+      return;
     }
+    ref.read(inboxProvider.notifier).adjust(notification.read ? 1 : -1);
+  }
 
-    final appointmentId = notification.appointmentId ?? '1';
-
-    switch (action) {
-      case NotificationAction.rescheduleTodayAppt:
-        if (apptLive(appointmentId)) {
-          context.push(AppRoutes.reschedulePath(appointmentId));
-        } else {
-          toast('That appointment was cancelled');
-        }
-      case NotificationAction.viewTodayApptDetail:
-        if (apptLive(appointmentId)) {
-          context.push(AppRoutes.appointmentDetailPath(appointmentId));
-        } else {
-          toast('That appointment was cancelled');
-        }
-      case NotificationAction.viewRecords:
-        context.go(AppRoutes.records);
-      case NotificationAction.downloadPrescription:
-        // No storage or PDF package in this build, so say so rather than
-        // reporting a download that never happened.
-        showStubbedToast(context, ref, 'Download');
-      case NotificationAction.remindLater:
-        // Honest: there is no scheduler, so this hides the notice rather than
-        // promising a reminder the app cannot send.
-        ref.read(notificationsStoreProvider.notifier).markRead(notification.id);
-        toast('Marked as read — reminders are not scheduled in this demo');
-      case NotificationAction.scheduleBooking:
-        context.push(AppRoutes.bookingPath(step: 1));
+  /// `DELETE /{id}`. Returns whether the row may leave the list.
+  Future<bool> _remove(BuildContext context, WidgetRef ref) async {
+    final wasUnread = notification.unread;
+    final failure = await ref
+        .read(notificationsListProvider(query).notifier)
+        .dismiss(notification.id);
+    if (!context.mounted) return failure == null;
+    final toast = ref.read(toastControllerProvider.notifier);
+    if (failure != null) {
+      toast.show(failure.userMessage);
+      return false;
     }
+    if (wasUnread) ref.read(inboxProvider.notifier).adjust(-1);
+    toast.show('“${notification.title}” removed');
+    // The controller already removed the row; Dismissible must not animate
+    // a second removal of a widget that is gone.
+    return false;
   }
 }
 
@@ -564,41 +620,6 @@ class _DismissBackground extends StatelessWidget {
           color: AppColors.dangerText,
         ),
       ),
-    );
-  }
-}
-
-/// Two empties, because they need two different ways out.
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.isFiltered,
-    required this.onClearFilters,
-    required this.onBook,
-  });
-
-  final bool isFiltered;
-  final VoidCallback onClearFilters;
-  final VoidCallback onBook;
-
-  @override
-  Widget build(BuildContext context) {
-    if (isFiltered) {
-      return AppEmptyView(
-        iconName: MedIcon.bell,
-        headline: 'Nothing matches this view',
-        body: 'Try another kind, or switch back to All.',
-        actionLabel: 'Show all notifications',
-        onAction: onClearFilters,
-      );
-    }
-    return AppEmptyView(
-      iconName: MedIcon.bell,
-      headline: 'No notifications',
-      body:
-          'Booking confirmations, reminders and changes to your '
-          'appointments will show up here.',
-      actionLabel: 'Book an appointment',
-      onAction: onBook,
     );
   }
 }
