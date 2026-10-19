@@ -142,7 +142,7 @@ abstract final class BookingMappers {
 
   static HospitalBanner banner(
     Map<String, Object?> json, {
-    required String hospitalId,
+    required String? hospitalId,
   }) => HospitalBanner(
     id: str(json, 'id'),
     title: str(json, 'title'),
@@ -155,6 +155,11 @@ abstract final class BookingMappers {
     endsAt: optDateTime(json, 'ends_at'),
     hospitalId: hospitalId,
   );
+
+  /// One row of `GET /patient/content/banners` (UB-56). A platform banner
+  /// has `hospital_id: null`; a hospital one names its hospital.
+  static HospitalBanner feedBanner(Map<String, Object?> json) =>
+      banner(json, hospitalId: optStr(json, 'hospital_id'));
 
   static HospitalDetail hospitalDetail(Map<String, Object?> json) {
     final card = hospitalCard(json);
@@ -227,6 +232,16 @@ abstract final class BookingMappers {
         tokenCancelLimitMin: optInt(json, 'token_cancel_limit_min'),
         hospitalCancellationRefundBp:
             optInt(json, 'hospital_cancellation_refund_bp') ?? 10000,
+        chargeMode: optStr(json, 'cancellation_charge_mode') ?? 'percentage',
+        chargeBeforeCutoffPaise:
+            optInt(json, 'cancellation_charge_before_cutoff_paise') ?? 0,
+        chargeAfterCutoffPaise:
+            optInt(json, 'cancellation_charge_after_cutoff_paise') ?? 0,
+        hospitalCancellationRefundsConvenienceFee: boolOf(
+          json,
+          'hospital_cancellation_refunds_convenience_fee',
+          orElse: true,
+        ),
       );
 
   static DoctorCard doctorCard(Map<String, Object?> json) => DoctorCard(
@@ -350,6 +365,7 @@ abstract final class BookingMappers {
                 orElse: false,
               ),
               reason: optStr(coupon.cast<String, Object?>(), 'reason'),
+              message: optStr(coupon.cast<String, Object?>(), 'message'),
             )
           : null,
       regularConsultationFeePaise: optInt(

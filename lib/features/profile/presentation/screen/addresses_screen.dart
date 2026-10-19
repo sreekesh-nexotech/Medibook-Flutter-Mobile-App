@@ -738,12 +738,10 @@ class _DefaultToggleRow extends StatelessWidget {
             ),
           ),
           SizedBox(width: AppSpacing.x3.w),
-          Semantics(
-            label: 'Use this as the default address',
-            child: AppSwitch(
-              value: value || isLocked,
-              onChanged: isLocked ? null : onChanged,
-            ),
+          AppSwitch(
+            value: value || isLocked,
+            onChanged: isLocked ? null : onChanged,
+            semanticLabel: 'Use this as the default address',
           ),
         ],
       ),

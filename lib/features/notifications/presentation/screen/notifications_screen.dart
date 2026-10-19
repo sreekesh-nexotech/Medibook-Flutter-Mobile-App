@@ -19,6 +19,8 @@ import '../../../../core/widgets/states/app_empty_view.dart';
 import '../../../../core/widgets/states/app_error_view.dart';
 import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../appointments/application/providers/rebook_provider.dart';
+import '../../../appointments/application/usecases/rebook.dart';
 import '../../application/providers/notifications_provider.dart';
 import '../../application/states/notifications_state.dart';
 import '../../application/usecases/notification_target.dart';
@@ -519,6 +521,10 @@ class _Row extends ConsumerWidget {
           onOpen: () => _open(context, ref),
           onToggleRead: () => _toggleRead(context, ref),
           onRemove: () => _remove(context, ref),
+          onRebook:
+              NotificationTargets.rebookAppointmentId(notification) == null
+              ? null
+              : () => _rebook(context, ref),
         ),
       ),
     );
@@ -526,14 +532,44 @@ class _Row extends ConsumerWidget {
 
   /// Tapping a card reads it, then follows `data.event` (§12.1).
   Future<void> _open(BuildContext context, WidgetRef ref) async {
-    if (notification.unread) {
-      final failure = await ref
-          .read(notificationsListProvider(query).notifier)
-          .markRead(notification.id);
-      if (failure == null) ref.read(inboxProvider.notifier).adjust(-1);
-    }
+    await _markRead(ref);
     if (!context.mounted) return;
     _navigate(context, ref, NotificationTargets.of(notification));
+  }
+
+  Future<void> _markRead(WidgetRef ref) async {
+    if (!notification.unread) return;
+    final failure = await ref
+        .read(notificationsListProvider(query).notifier)
+        .markRead(notification.id);
+    if (failure == null) ref.read(inboxProvider.notifier).adjust(-1);
+  }
+
+  /// "Rebook" (UB-20): booking with the cancelled visit's doctor and
+  /// department, at the Doctor & time step. When the appointment cannot be read
+  /// (offline, nothing cached) it opens the appointment instead, whose
+  /// "Book Again" does the same once it loads.
+  Future<void> _rebook(BuildContext context, WidgetRef ref) async {
+    final appointmentId = NotificationTargets.rebookAppointmentId(notification);
+    if (appointmentId == null) return;
+    await _markRead(ref);
+    RebookRequest? request;
+    try {
+      request = await ref.read(rebookRequestProvider(appointmentId).future);
+    } catch (_) {
+      request = null;
+    }
+    if (!context.mounted) return;
+    if (request == null) {
+      context.push(AppRoutes.appointmentDetailPath(appointmentId));
+      return;
+    }
+    context.push(
+      AppRoutes.rebookPath(
+        dept: request.departmentKey,
+        doctor: request.doctorId,
+      ),
+    );
   }
 
   void _navigate(

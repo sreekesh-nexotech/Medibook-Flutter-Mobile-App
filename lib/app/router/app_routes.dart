@@ -94,6 +94,14 @@ abstract final class AppRoutes {
     return '$booking?${q.join('&')}';
   }
 
+  /// "Book Again" / "Rebook" (UB-13, UB-20 — there is no reschedule: cancel,
+  /// then book again). Opens the Doctor & time step with the cancelled
+  /// visit's doctor already chosen, so the patient only picks a new time.
+  /// Step 3 is wrong here: with a doctor but no slot it can only say "Pick a
+  /// doctor and a time first".
+  static String rebookPath({required String dept, required String doctor}) =>
+      bookingPath(step: 2, dept: dept, doctor: doctor, origin: 'appointments');
+
   // ---- Legal & support (CM-02, CM-52) ----
 
   /// Terms / Privacy / Guidelines. `/legal/:slug`, slug ∈

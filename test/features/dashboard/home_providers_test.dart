@@ -50,6 +50,29 @@ void main() {
     expect(discovery.bannerRequests, ['h1', 'h2']);
   });
 
+  test('platform campaign banners lead the strip, each banner once '
+      '(UB-56)', () async {
+    discovery.feed = const [
+      HospitalBanner(id: 'p1', title: 'Monsoon health check-ups'),
+      // Also in h1's own list: shown once.
+      HospitalBanner(id: 'b-h1', title: 'Free BP check', hospitalId: 'h1'),
+    ];
+    final banners = await container.read(homeBannersProvider.future);
+    expect(banners.map((b) => b.title), [
+      'Monsoon health check-ups',
+      'Free BP check',
+      'Skin camp',
+    ]);
+    expect(banners.first.hospitalId, isNull);
+    expect(discovery.feedCities, [null]);
+  });
+
+  test('a failing campaign feed leaves the hospital banners', () async {
+    discovery.feedFails = true;
+    final banners = await container.read(homeBannersProvider.future);
+    expect(banners.map((b) => b.title), ['Free BP check', 'Skin camp']);
+  });
+
   test('department icons fall back to the generic mark', () {
     expect(departmentIconFor('orthopaedics'), DeptIcon.orthopedics);
     expect(departmentIconFor('gynaecology'), DeptIcon.womensHealth);
@@ -73,6 +96,19 @@ Page<T> _page<T>(List<T> rows) => Page<T>(
 
 class _FakeDiscovery implements DiscoveryRepository {
   final List<String> bannerRequests = [];
+  final List<String?> feedCities = [];
+  List<HospitalBanner> feed = const [];
+  bool feedFails = false;
+
+  @override
+  Stream<CachedResult<Page<HospitalBanner>>> contentBanners({
+    String? city,
+    bool forceRefresh = false,
+  }) {
+    feedCities.add(city);
+    if (feedFails) return Stream.error(StateError('feed down'));
+    return Stream.value(_fresh(_page(feed)));
+  }
 
   @override
   Stream<CachedResult<Page<DepartmentSummary>>> departments({

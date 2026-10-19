@@ -53,6 +53,15 @@ abstract final class DiscoveryApi {
   static ApiRequest hospitalBanners(String id) =>
       ApiRequest(path: Endpoints.hospitalBanners(id), requiresAuth: false);
 
+  /// `GET /patient/content/banners` (UB-56). Anonymous is allowed, but this
+  /// one carries the token: a signed-in patient with a booking also gets the
+  /// `hospital_patients` audience, which an anonymous call never sees. The
+  /// cache key is per account, so one patient's feed never shows for another.
+  static ApiRequest contentBanners({String? city}) => ApiRequest(
+    path: Endpoints.contentBanners,
+    query: {'city': city, ...Endpoints.page(1, size: 25)},
+  );
+
   static ApiRequest departments() => const ApiRequest(
     path: Endpoints.departments,
     query: {'sort': 'name', 'page_size': 100},

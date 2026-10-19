@@ -24,6 +24,7 @@ import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../../auth/application/providers/auth_provider.dart';
 import '../../../booking/application/providers/booking_draft_provider.dart';
 import '../../../booking/application/providers/booking_providers.dart';
+import '../../../booking/domain/entities/person_summary.dart';
 import '../../../booking/presentation/booking_routes.dart';
 import '../../../booking/presentation/components/confirm_summary.dart';
 import '../../../booking/presentation/components/fee_breakdown_card.dart';
@@ -137,6 +138,14 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen>
     quotedPaise: ref.read(bookingSubmitProvider).quotedTotalPaise,
     duePaise: duePaise,
   );
+
+  String? _personName(String personId) {
+    final persons = ref.watch(bookingPersonsProvider).valueOrNull;
+    for (final person in persons ?? const <PersonSummary>[]) {
+      if (person.id == personId) return person.fullName;
+    }
+    return null;
+  }
 
   static String _priceChangeMessage(PriceChange change) =>
       'You were shown ${Money.inr(change.quotedPaise)} when you confirmed. '
@@ -383,7 +392,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen>
           SizedBox(height: AppSpacing.x3.h),
           ConfirmSummary(
             appointment: appointment,
-            patientName: draft.person?.fullName ?? 'Patient on file',
+            // "Retry payment" from a booking opens this screen without the
+            // booking flow's draft: name the person from the family list
+            // (UAT RUN3 — it read "Patient on file").
+            patientName:
+                draft.person?.fullName ??
+                _personName(appointment.personId) ??
+                'Patient on file',
             timezone: appointment.hospitalTimezone ?? draft.hospitalTimezone,
           ),
           SizedBox(height: 14.h),

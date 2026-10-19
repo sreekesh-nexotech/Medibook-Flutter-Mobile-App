@@ -37,6 +37,18 @@ abstract final class ApiErrorCodes {
   static const String couponExpired = 'COUPON_EXPIRED';
   static const String couponMinOrder = 'COUPON_MIN_ORDER';
   static const String couponUsageCap = 'COUPON_USAGE_CAP';
+  static const String couponNotStarted = 'COUPON_NOT_STARTED';
+  static const String couponNotApplicable = 'COUPON_NOT_APPLICABLE';
+
+  /// Every coupon refusal (§8.3, §9.1, UB-27).
+  static const Set<String> couponCodes = {
+    couponInvalid,
+    couponExpired,
+    couponMinOrder,
+    couponUsageCap,
+    couponNotStarted,
+    couponNotApplicable,
+  };
   static const String underAge = 'UNDER_AGE';
   static const String personIsSelf = 'PERSON_IS_SELF';
   static const String personHasAppointments = 'PERSON_HAS_APPOINTMENTS';
@@ -414,6 +426,11 @@ abstract final class NetworkExceptions {
         return ServerFailure(
           userMessage: code == ApiErrorCodes.notImplementedYet
               ? 'That feature is not available right now.'
+              // The gateway refused to open a payment (UAT DEF-002): say it
+              // is payment, and that no money moved.
+              : meta['provider'] == 'razorpay'
+              ? 'Online payment is temporarily unavailable, so nothing was '
+                    'charged. Please try again in a few minutes.'
               : 'A service we depend on is temporarily unavailable. '
                     'Please try again in a moment.',
           statusCode: error.statusCode,
@@ -527,6 +544,13 @@ abstract final class NetworkExceptions {
     ApiErrorCodes.tokenRangeExhausted =>
       'No tokens are left for that session. Please pick another '
           'session.',
+    // UB-12: a desk walk-in is refused with `meta.reason: desk_booking` and
+    // a sentence that sends the patient to the hospital desk — keep it.
+    ApiErrorCodes.appointmentNotActionable
+        when meta['reason'] == 'desk_booking' =>
+      serverMessage ??
+          'This booking was made at the hospital desk; please ask the '
+              'hospital to cancel it.',
     ApiErrorCodes.appointmentNotActionable =>
       'This appointment can no longer be changed.',
     ApiErrorCodes.tokenAlreadyCalled =>
@@ -540,6 +564,12 @@ abstract final class NetworkExceptions {
     ApiErrorCodes.couponMinOrder =>
       'The order is below the minimum for that coupon.',
     ApiErrorCodes.couponUsageCap => 'That coupon has been used up.',
+    // These two depend on the coupon's rules (start date, department,
+    // online only), which only the server's sentence names (UB-27).
+    ApiErrorCodes.couponNotStarted =>
+      serverMessage ?? 'That coupon is not valid yet.',
+    ApiErrorCodes.couponNotApplicable =>
+      serverMessage ?? 'That coupon cannot be used for this booking.',
     ApiErrorCodes.underAge =>
       'Account holders must be 18 or older. Add a minor as a family '
           'member instead.',

@@ -124,6 +124,10 @@ class CancellationPolicy {
     required this.refundIncludesConvenienceFee,
     required this.hospitalCancellationRefundBp,
     this.tokenCancelLimitMin,
+    this.chargeMode = 'percentage',
+    this.chargeBeforeCutoffPaise = 0,
+    this.chargeAfterCutoffPaise = 0,
+    this.hospitalCancellationRefundsConvenienceFee = true,
   });
 
   final int cutoffHours;
@@ -132,6 +136,15 @@ class CancellationPolicy {
   final bool refundIncludesConvenienceFee;
   final int? tokenCancelLimitMin;
   final int hospitalCancellationRefundBp;
+
+  /// Q10: `percentage` (the bp tiers above) or `fixed` (a charge per tier, in paise).
+  final String chargeMode;
+  final int chargeBeforeCutoffPaise;
+  final int chargeAfterCutoffPaise;
+
+  /// Q11: whether a hospital cancellation also refunds the convenience fee
+  /// (older servers did; the default keeps their wording).
+  final bool hospitalCancellationRefundsConvenienceFee;
 }
 
 /// `GET /patient/hospitals/{id}` (§7.3): a [HospitalCard] plus everything the

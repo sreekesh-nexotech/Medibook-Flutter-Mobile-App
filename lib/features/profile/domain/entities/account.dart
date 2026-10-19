@@ -211,8 +211,12 @@ class DataExportRequest {
     required this.requestNo,
     required this.status,
     required this.requestedAt,
+    this.statusLabel,
     this.dueAt,
     this.completedAt,
+    this.readyAt,
+    this.rejectedAt,
+    this.rejectionReason,
   });
 
   /// The `dsr_id` the download link takes. Never shown.
@@ -223,9 +227,55 @@ class DataExportRequest {
   final DataExportStatus status;
   final DateTime requestedAt;
 
+  /// The server's own word for [status] (`status_label`: "Ready",
+  /// "Rejected", "In progress" …), or null from an older server.
+  final String? statusLabel;
+
   /// The date Medibook must have answered by (30 days after [requestedAt]).
   final DateTime? dueAt;
+
+  /// When the request was closed — set for **every** closed request,
+  /// rejected ones too, so it never means "ready" on its own (UB-55). Use
+  /// [readyOn] / [rejectedOn] / [closedOn].
   final DateTime? completedAt;
+
+  /// `ready_at`: set only when the file was produced.
+  final DateTime? readyAt;
+
+  /// `rejected_at`: set only when compliance rejected the request.
+  final DateTime? rejectedAt;
+
+  /// `rejection_reason`: what compliance typed when rejecting, or null.
+  final String? rejectionReason;
+
+  /// The badge text: the server's label, else the app's for [status].
+  String get label {
+    final text = statusLabel?.trim();
+    return text == null || text.isEmpty ? status.label : text;
+  }
+
+  /// When the file became ready; null unless [isReady]. Falls back to
+  /// [completedAt] only for a completed request (a server without
+  /// `ready_at`).
+  DateTime? get readyOn => isReady ? (readyAt ?? completedAt) : null;
+
+  /// When the request was rejected; null unless rejected.
+  DateTime? get rejectedOn =>
+      status == DataExportStatus.rejected ? (rejectedAt ?? completedAt) : null;
+
+  /// When a request that ended without a file or a rejection (nothing to
+  /// export, withdrawn) was closed; null otherwise.
+  DateTime? get closedOn => switch (status) {
+    DataExportStatus.noData || DataExportStatus.withdrawn => completedAt,
+    _ => null,
+  };
+
+  /// The rejection reason worth showing, or null.
+  String? get shownRejectionReason {
+    if (status != DataExportStatus.rejected) return null;
+    final text = rejectionReason?.trim();
+    return text == null || text.isEmpty ? null : text;
+  }
 
   /// Still being prepared — a second request is refused while one is open
   /// (`409 STATE_CONFLICT`).
@@ -244,10 +294,13 @@ class DataExportRequest {
       other is DataExportRequest &&
       other.id == id &&
       other.status == status &&
-      other.completedAt == completedAt;
+      other.statusLabel == statusLabel &&
+      other.completedAt == completedAt &&
+      other.rejectionReason == rejectionReason;
 
   @override
-  int get hashCode => Object.hash(id, status, completedAt);
+  int get hashCode =>
+      Object.hash(id, status, statusLabel, completedAt, rejectionReason);
 }
 
 /// Export request `status` — the data-subject-request states (§17) an export

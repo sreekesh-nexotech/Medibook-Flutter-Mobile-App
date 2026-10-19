@@ -197,8 +197,12 @@ abstract final class ProfileMappers {
       requestNo: requestNo,
       status: DataExportStatus.fromWire(map['status'] as String?),
       requestedAt: _dateTime(map['requested_at']) ?? DateTime.now(),
+      statusLabel: map['status_label'] as String?,
       dueAt: _dateTime(map['due_at']),
       completedAt: _dateTime(map['completed_at']),
+      readyAt: _dateTime(map['ready_at']),
+      rejectedAt: _dateTime(map['rejected_at']),
+      rejectionReason: map['rejection_reason'] as String?,
     );
   }
 

@@ -467,6 +467,7 @@ class LiveQueueController extends StateNotifier<LiveQueueState> {
       if (!mounted) return;
       state = state.copyWith(
         queue: queue,
+        receivedAt: DateTime.now(),
         isLoading: false,
         clearFailure: true,
         // The endpoint is the source of truth once the desk has moved on.

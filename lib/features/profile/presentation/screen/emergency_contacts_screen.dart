@@ -649,12 +649,10 @@ class _PrimaryToggleRow extends StatelessWidget {
             ),
           ),
           SizedBox(width: AppSpacing.x3.w),
-          Semantics(
-            label: 'Make this the primary emergency contact',
-            child: AppSwitch(
-              value: value || isLocked,
-              onChanged: isLocked ? null : onChanged,
-            ),
+          AppSwitch(
+            value: value || isLocked,
+            onChanged: isLocked ? null : onChanged,
+            semanticLabel: 'Make this the primary emergency contact',
           ),
         ],
       ),

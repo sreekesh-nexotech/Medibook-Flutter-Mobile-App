@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:medibook/features/appointments/infrastructure/repositories/appointment_mappers.dart';
 import 'package:medibook/features/appointments/presentation/components/status_pill.dart';
+
+import 'support/fixtures.dart';
 
 /// Appointments audit (6 Oct 2026): the server's cancellation reason is
 /// shown in words, without repeating what the status line already says.
@@ -26,6 +29,23 @@ void main() {
     expect(
       AppointmentStatusStyle.reasonText('Test notification.'),
       'Test notification',
+    );
+  });
+
+  // UAT RUN3: Razorpay's payment.failed leaves the booking payable; the
+  // header must say the attempt failed and nothing was charged.
+  test('a failed payment attempt is explained on a payable booking', () {
+    final failed = AppointmentMappers.appointment({
+      ...Fixtures.appointmentJson(),
+      'payment_status': 'failed',
+    });
+    expect(
+      AppointmentStatusStyle.hint(failed),
+      contains('nothing was charged'),
+    );
+    expect(
+      AppointmentStatusStyle.hint(Fixtures.appointment()),
+      'Complete the payment to confirm this booking.',
     );
   });
 }

@@ -98,7 +98,12 @@ class RazorpayCheckoutGateway implements CheckoutGateway {
 
   void _onError(PaymentFailureResponse response) {
     final code = response.code;
-    final cancelled = code == Razorpay.PAYMENT_CANCELLED;
+    // On Android, Razorpay reports a payment the bank declined with the same
+    // PAYMENT_CANCELLED code as a closed sheet (retry is off). Only the error
+    // body tells them apart: a declined attempt carries reason
+    // `payment_failed` and the failed payment's id (UAT RUN3).
+    final cancelled =
+        code == Razorpay.PAYMENT_CANCELLED && !_isDeclined(response.error);
     AppLogger.info(
       'Razorpay checkout ended: code=$code cancelled=$cancelled',
       name: 'payment',
@@ -126,6 +131,14 @@ class RazorpayCheckoutGateway implements CheckoutGateway {
               },
       ),
     );
+  }
+
+  static bool _isDeclined(Map<dynamic, dynamic>? error) {
+    if (error == null) return false;
+    if (error['reason'] == 'payment_failed') return true;
+    final metadata = error['metadata'];
+    final paymentId = metadata is Map ? metadata['payment_id'] : null;
+    return paymentId is String && paymentId.isNotEmpty;
   }
 
   void _onExternalWallet(ExternalWalletResponse response) =>

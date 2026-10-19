@@ -10,6 +10,8 @@ import '../../../../app/theme/typography.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../core/utils/external_url.dart';
+import '../../../../core/utils/money.dart';
+import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/route_arrival.dart';
@@ -82,6 +84,20 @@ class _HospitalDetailScreenState extends ConsumerState<HospitalDetailScreen> {
     await ref.read(hospitalDetailProvider(widget.id).future);
   }
 
+  /// Pull-to-refresh: ask the server even when a copy was read this visit, so
+  /// a change the hospital just made shows without leaving the screen (DEF-008).
+  Future<void> _pullRefresh() async {
+    try {
+      await ref
+          .read(discoveryRepositoryProvider)
+          .hospital(widget.id, forceRefresh: true)
+          .last;
+    } catch (_) {
+      // What is saved stays on screen; the screen shows its own state.
+    }
+    ref.invalidate(hospitalDetailProvider(widget.id));
+  }
+
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(hospitalDetailProvider(widget.id));
@@ -100,33 +116,38 @@ class _HospitalDetailScreenState extends ConsumerState<HospitalDetailScreen> {
               children: [
                 _Header(onBack: _back),
                 Expanded(
-                  child: detail.when(
-                    loading: () => AppSkeletonList(
-                      count: 3,
-                      padding: EdgeInsets.symmetric(horizontal: 20.w),
-                    ),
-                    error: (error, _) => AppErrorView(
-                      failure: error.asFailure(),
-                      headline: error is NotFoundFailure
-                          ? 'This hospital is not listed'
-                          : null,
-                      onRetry: _refresh,
-                      secondaryLabel: 'Back to hospitals',
-                      onSecondary: _back,
-                    ),
-                    data: (result) => _Body(
-                      hospital: result.value,
-                      cache: CacheStatusBar(
-                        result: result,
-                        onRefresh: _refresh,
+                  child: AppRefreshIndicator(
+                    semanticsLabel: 'Refresh hospital details',
+                    refreshOnArrival: false,
+                    onRefresh: _pullRefresh,
+                    child: detail.when(
+                      loading: () => AppSkeletonList(
+                        count: 3,
+                        padding: EdgeInsets.symmetric(horizontal: 20.w),
                       ),
-                      departmentCode: _departmentCode,
-                      selected: _selected,
-                      onDepartment: (code) => setState(() {
-                        _departmentCode = code;
-                        _selected = null;
-                      }),
-                      onSelect: (d) => setState(() => _selected = d),
+                      error: (error, _) => AppErrorView(
+                        failure: error.asFailure(),
+                        headline: error is NotFoundFailure
+                            ? 'This hospital is not listed'
+                            : null,
+                        onRetry: _refresh,
+                        secondaryLabel: 'Back to hospitals',
+                        onSecondary: _back,
+                      ),
+                      data: (result) => _Body(
+                        hospital: result.value,
+                        cache: CacheStatusBar(
+                          result: result,
+                          onRefresh: _refresh,
+                        ),
+                        departmentCode: _departmentCode,
+                        selected: _selected,
+                        onDepartment: (code) => setState(() {
+                          _departmentCode = code;
+                          _selected = null;
+                        }),
+                        onSelect: (d) => setState(() => _selected = d),
+                      ),
                     ),
                   ),
                 ),
@@ -1030,12 +1051,23 @@ class _Policy extends StatelessWidget {
 
   static String _pct(int bp) => '${(bp / 100).toStringAsFixed(0)}%';
 
+  /// "a ₹50 charge is kept" / "the full amount is refunded" (Q10 fixed mode).
+  static String _charge(int paise) => paise == 0
+      ? 'the full amount is refunded'
+      : 'a ${Money.paise(paise).format()} charge is kept';
+
   @override
   Widget build(BuildContext context) {
     final lines = <String>[
-      'Cancel more than ${policy.cutoffHours} hours before your slot for a '
-          '${_pct(policy.refundBeforeCutoffBp)} refund; inside that window '
-          '${policy.refundAfterCutoffBp == 0 ? 'no refund is given' : 'the refund is ${_pct(policy.refundAfterCutoffBp)}'}.',
+      if (policy.chargeMode == 'fixed')
+        // Q10: a fixed cancellation charge per tier instead of a percentage.
+        'Cancel more than ${policy.cutoffHours} hours before your slot and '
+            '${_charge(policy.chargeBeforeCutoffPaise)}; inside that window '
+            '${_charge(policy.chargeAfterCutoffPaise)}.'
+      else
+        'Cancel more than ${policy.cutoffHours} hours before your slot for a '
+            '${_pct(policy.refundBeforeCutoffBp)} refund; inside that window '
+            '${policy.refundAfterCutoffBp == 0 ? 'no refund is given' : 'the refund is ${_pct(policy.refundAfterCutoffBp)}'}.',
       policy.refundIncludesConvenienceFee
           ? 'Refunds include the convenience fee.'
           : 'The convenience fee is not refunded.',
@@ -1044,8 +1076,12 @@ class _Policy extends StatelessWidget {
             'the session starts.'
       else
         'You can cancel until your token is called.',
-      'If the hospital cancels, ${_pct(policy.hospitalCancellationRefundBp)} '
-          'is refunded.',
+      policy.hospitalCancellationRefundsConvenienceFee
+          ? 'If the hospital cancels, '
+                '${_pct(policy.hospitalCancellationRefundBp)} is refunded.'
+          // Q11: the doctor's fee comes back in full; the convenience fee does not.
+          : 'If the hospital cancels, the doctor\'s fee is refunded in full; '
+                'the convenience fee is not refunded.',
       'Bookings open up to $bookingWindowDays days ahead.',
     ];
     return AppCard(

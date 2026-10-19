@@ -30,6 +30,7 @@ import '../../../support/application/providers/app_config_provider.dart';
 import '../../../support/application/providers/faq_controller.dart';
 import '../../../support/application/providers/support_provider.dart';
 import '../../application/providers/account_deletion_provider.dart';
+import '../../application/providers/app_version_provider.dart';
 import '../../application/providers/profile_mutations_provider.dart';
 import '../../application/providers/profile_provider.dart';
 import '../../domain/entities/account.dart';
@@ -59,6 +60,8 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Read early so the licences page can show the version (REL-010).
+    ref.watch(appVersionProvider);
     final user = ref.watch(currentUserProvider);
     final identity = ref.watch(profileIdentityProvider);
     final dependants = ref.watch(dependantsProvider);
@@ -275,6 +278,9 @@ class ProfileScreen extends ConsumerWidget {
                               onTap: () => showLicensePage(
                                 context: context,
                                 applicationName: 'Medibook',
+                                applicationVersion: ref
+                                    .read(appVersionProvider)
+                                    .valueOrNull,
                               ),
                             ),
                           ],

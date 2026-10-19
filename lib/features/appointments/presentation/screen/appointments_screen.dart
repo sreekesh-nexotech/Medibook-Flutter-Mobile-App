@@ -294,11 +294,9 @@ class _AppointmentItem extends ConsumerWidget {
       onTap: () =>
           context.push(AppRoutes.appointmentDetailPath(appointment.id)),
       onBookAgain: () => context.push(
-        AppRoutes.bookingPath(
-          step: 3,
+        AppRoutes.rebookPath(
           dept: appointment.department.code ?? appointment.department.id,
           doctor: appointment.doctor.id,
-          origin: 'appointments',
         ),
       ),
     );

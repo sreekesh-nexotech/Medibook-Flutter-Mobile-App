@@ -323,10 +323,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       ref.read(toastControllerProvider.notifier).show(failure.userMessage);
       return;
     }
-    if (failure.apiCode == ApiErrorCodes.couponInvalid ||
-        failure.apiCode == ApiErrorCodes.couponExpired ||
-        failure.apiCode == ApiErrorCodes.couponMinOrder ||
-        failure.apiCode == ApiErrorCodes.couponUsageCap) {
+    if (ApiErrorCodes.couponCodes.contains(failure.apiCode)) {
       ref.read(bookingDraftProvider.notifier).removeCoupon();
     }
     ref.read(toastControllerProvider.notifier).show(failure.userMessage);
@@ -1049,6 +1046,7 @@ class _Step4Confirm extends ConsumerWidget {
                 appliedCode: fee.hasValidCoupon ? fee.coupon!.code : null,
                 discountPaise: fee.discountPaise,
                 rejectionCode: fee.couponError,
+                rejectionMessage: fee.couponErrorMessage,
                 enabled: !submit.isSubmitting,
                 onApply: (code) =>
                     ref.read(bookingDraftProvider.notifier).applyCoupon(code),

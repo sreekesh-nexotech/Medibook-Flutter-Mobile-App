@@ -26,9 +26,12 @@ import '../../../../core/widgets/states/app_error_view.dart';
 import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../../../core/widgets/states/app_not_found_view.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
+import '../../../notifications/application/providers/notifications_provider.dart';
 import '../../application/providers/appointments_provider.dart';
 import '../../application/states/appointment_action_state.dart';
+import '../../application/usecases/cancel_blocked_reason.dart';
 import '../../application/usecases/hospital_time.dart';
+import '../../application/usecases/rebook.dart';
 import '../../domain/entities/appointment.dart';
 import '../../domain/entities/appointment_detail.dart';
 import '../../domain/entities/appointment_event.dart';
@@ -57,6 +60,16 @@ class AppointmentDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // UAT RUN3: a payment confirmed by Razorpay's webhook (or a hospital
+    // cancel / refund) reaches the patient as a new inbox notification; the
+    // frame does not say which booking, so re-read this one. A plain re-read
+    // would be answered from the response cache: drop it first.
+    ref.listen(inboxProvider.select((s) => s.lastCreatedId), (previous, next) {
+      if (next == null || next == previous) return;
+      ref.read(appointmentsRepositoryProvider).invalidate().then((_) {
+        if (context.mounted) ref.invalidate(appointmentDetailProvider(id));
+      });
+    });
     final detail = ref.watch(appointmentDetailProvider(id));
     final actionState = ref.watch(appointmentActionsProvider(id));
 
@@ -190,14 +203,15 @@ class AppointmentDetailScreen extends ConsumerWidget {
           onCancel: () => _confirmCancel(context, ref, detail),
           onRetryPayment: () => _retryPayment(context, detail),
           onReview: () => _review(context, ref, detail),
-          onBookAgain: () => context.push(
-            AppRoutes.bookingPath(
-              step: 3,
-              dept: appointment.department.code ?? appointment.department.id,
-              doctor: appointment.doctor.id,
-              origin: 'appointments',
-            ),
-          ),
+          onBookAgain: () {
+            final again = RebookRequest.of(appointment);
+            context.push(
+              AppRoutes.rebookPath(
+                dept: again.departmentKey,
+                doctor: again.doctorId,
+              ),
+            );
+          },
         ),
       ],
     );
@@ -757,7 +771,8 @@ class _Footer extends StatelessWidget {
 
     final Widget body;
     if (upcoming) {
-      body = Row(
+      final blocked = CancelBlockedReason.of(detail.appointment, actions);
+      final buttons = Row(
         children: [
           if (actions.canRetryPayment) ...[
             Expanded(
@@ -777,15 +792,36 @@ class _Footer extends StatelessWidget {
               fullWidth: true,
               disabled: !actions.canCancel,
               loading: actionState.isRunning(AppointmentActionKind.cancel),
-              semanticLabel: actions.canCancel
+              semanticLabel: blocked == null
                   ? 'Cancel this appointment'
-                  : 'Cancel unavailable — '
-                        '${_blockedReason(actions.cancelBlockedReason)}',
+                  : 'Cancel unavailable — $blocked',
               onPressed: actions.canCancel ? onCancel : null,
             ),
           ),
         ],
       );
+      // A disabled Cancel says why in words, not only to a screen reader
+      // (UB-12): a desk booking names the desk.
+      body = blocked == null
+          ? buttons
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ExcludeSemantics(
+                  child: Text(
+                    blocked,
+                    style: AppText.poppins(
+                      size: AppFontSize.xs,
+                      height: 1.45,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 10.h),
+                buttons,
+              ],
+            );
     } else {
       body = Row(
         children: [
@@ -830,12 +866,6 @@ class _Footer extends StatelessWidget {
       child: body,
     );
   }
-
-  static String _blockedReason(String? code) => switch (code) {
-    'TOKEN_ALREADY_CALLED' => 'your token has already been called',
-    'TOKEN_CANCEL_WINDOW_CLOSED' => 'the cancellation window has closed',
-    _ => 'this appointment can no longer be cancelled',
-  };
 }
 
 /// Rating stars + optional comment (§10.12: rating 1–5 required, comment

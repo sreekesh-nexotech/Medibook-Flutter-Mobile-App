@@ -34,14 +34,24 @@ class FeeLine {
 /// The coupon verdict inside a quote. A bad coupon does **not** fail the
 /// quote; it comes back with [valid] false and [reason].
 class CouponResult {
-  const CouponResult({required this.code, required this.valid, this.reason});
+  const CouponResult({
+    required this.code,
+    required this.valid,
+    this.reason,
+    this.message,
+  });
 
   final String code;
   final bool valid;
 
-  /// `COUPON_INVALID` | `COUPON_EXPIRED` | `COUPON_MIN_ORDER` |
-  /// `COUPON_USAGE_CAP`, or null when valid.
+  /// `COUPON_INVALID` | `COUPON_NOT_STARTED` | `COUPON_EXPIRED` |
+  /// `COUPON_NOT_APPLICABLE` | `COUPON_MIN_ORDER` | `COUPON_USAGE_CAP`, or
+  /// null when valid.
   final String? reason;
+
+  /// The server's own sentence for [reason] ("This coupon cannot be used for
+  /// this doctor's department."), or null when it sent none (UB-27).
+  final String? message;
 }
 
 /// `GET /patient/fee-quotes` (§8.3). Rendered as-is — the app never computes
@@ -88,6 +98,13 @@ class FeeQuote {
 
   /// The rejection reason when a coupon was sent and refused, else null.
   String? get couponError => coupon?.valid == false ? coupon?.reason : null;
+
+  /// The server's sentence for a refused coupon, else null (UB-27).
+  String? get couponErrorMessage {
+    if (coupon?.valid != false) return null;
+    final text = coupon?.message?.trim();
+    return text == null || text.isEmpty ? null : text;
+  }
 
   bool get hasDiscount => discountPaise > 0;
 }

@@ -261,6 +261,8 @@ abstract final class AppointmentMappers {
         refund: _money(json['refund_paise']),
         nonRefundable: _money(json['non_refundable_paise']),
         includesConvenienceFee: json['includes_convenience_fee'] == true,
+        chargeMode: json['charge_mode'] as String? ?? 'percentage',
+        cancellationCharge: _money(json['cancellation_charge_paise']),
       );
 
   // ---- Receipt (§10.8–10.9) ----

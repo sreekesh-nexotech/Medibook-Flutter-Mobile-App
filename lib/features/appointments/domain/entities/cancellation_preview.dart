@@ -14,6 +14,8 @@ class CancellationPreview {
     this.cutoffAt,
     this.beforeCutoff = true,
     this.includesConvenienceFee = false,
+    this.chargeMode = 'percentage',
+    this.cancellationCharge = Money.zero,
   });
 
   final bool allowed;
@@ -33,6 +35,13 @@ class CancellationPreview {
   final Money refund;
   final Money nonRefundable;
   final bool includesConvenienceFee;
+
+  /// Q10: `percentage` (the tier's refund %) or `fixed` (the tier's fixed
+  /// [cancellationCharge] is kept and the rest refunded).
+  final String chargeMode;
+  final Money cancellationCharge;
+
+  bool get isFixedCharge => chargeMode == 'fixed';
 
   /// "100%" / "50%".
   String get refundPercentLabel {

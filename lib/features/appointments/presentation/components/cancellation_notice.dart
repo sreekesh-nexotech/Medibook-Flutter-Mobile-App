@@ -140,6 +140,21 @@ class CancellationNotice extends StatelessWidget {
       return 'Nothing has been paid on this booking, so there is nothing to '
           'refund. Cancelling releases the slot and the token.';
     }
+    if (preview.isFixedCharge) {
+      // Q10: the hospital keeps a fixed cancellation charge, not a percentage.
+      final charge = preview.cancellationCharge.format();
+      if (preview.refund.isZero) {
+        return 'The hospital\'s $charge cancellation charge covers what was '
+            'paid, so nothing is refunded.';
+      }
+      final kept = preview.nonRefundable.isZero
+          ? ''
+          : '; ${preview.nonRefundable.format()} is not refundable '
+                '(the $charge cancellation charge'
+                '${preview.includesConvenienceFee ? '' : ' and the convenience fee'})';
+      return '${preview.refund.format()} goes back to the original payment '
+          'method$kept. Refunds usually take 5–7 working days.';
+    }
     if (preview.refund.isZero) {
       return 'You are past the hospital\'s cut-off, so the '
           '${preview.nonRefundable.format()} paid is not refundable.';

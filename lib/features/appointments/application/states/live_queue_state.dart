@@ -30,6 +30,7 @@ class LiveQueueState {
     this.connection = LiveQueueConnection.connecting,
     this.isYourTurn = false,
     this.calledAt,
+    this.receivedAt,
   });
 
   final QueueStatus? queue;
@@ -47,6 +48,11 @@ class LiveQueueState {
   final bool isYourTurn;
   final DateTime? calledAt;
 
+  /// When the app last received a reading. While [isLive] this, not the
+  /// session's own `updated_at`, says how fresh the numbers are: a queue that
+  /// has not moved for 40 minutes is still current (UAT RUN2, LIV-004).
+  final DateTime? receivedAt;
+
   bool get isLive => connection == LiveQueueConnection.live;
 
   LiveQueueState copyWith({
@@ -57,6 +63,7 @@ class LiveQueueState {
     LiveQueueConnection? connection,
     bool? isYourTurn,
     DateTime? calledAt,
+    DateTime? receivedAt,
   }) {
     return LiveQueueState(
       queue: queue ?? this.queue,
@@ -65,6 +72,7 @@ class LiveQueueState {
       connection: connection ?? this.connection,
       isYourTurn: isYourTurn ?? this.isYourTurn,
       calledAt: calledAt ?? this.calledAt,
+      receivedAt: receivedAt ?? this.receivedAt,
     );
   }
 }

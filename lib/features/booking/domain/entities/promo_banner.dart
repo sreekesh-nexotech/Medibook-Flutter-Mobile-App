@@ -1,13 +1,12 @@
-/// One hospital banner (§7.4). Banners belong to a hospital; there is no
-/// platform-wide list, so Home stitches together the visible hospitals'
-/// banners.
+/// One promo banner: a hospital's (§7.4) or a platform campaign from
+/// `GET /patient/content/banners` (UB-56), which has no hospital.
 ///
 /// Named `HospitalBanner` so it never collides with Flutter's `Banner` widget.
 class HospitalBanner {
   const HospitalBanner({
     required this.id,
     required this.title,
-    required this.hospitalId,
+    this.hospitalId,
     this.body,
     this.imageFileId,
     this.ctaLabel,
@@ -32,7 +31,7 @@ class HospitalBanner {
   final DateTime? startsAt;
   final DateTime? endsAt;
 
-  /// The hospital this banner belongs to — set by the caller that fetched it,
-  /// so Home can open the right facility.
-  final String hospitalId;
+  /// The hospital this banner belongs to, so Home can open the right
+  /// facility. Null for a platform campaign banner.
+  final String? hospitalId;
 }

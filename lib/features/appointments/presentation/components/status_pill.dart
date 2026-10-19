@@ -49,6 +49,12 @@ abstract final class AppointmentStatusStyle {
   /// One line of context under the pill on the detail screen.
   static String hint(Appointment appointment) {
     final base = switch (appointment.status) {
+      // A failed attempt (Razorpay's payment.failed) leaves the booking
+      // payable until its deadline: say so, and that nothing was charged.
+      AppointmentStatus.pendingPayment
+          when appointment.paymentStatus == AppointmentPaymentStatus.failed =>
+        'Your last payment did not go through and nothing was charged. '
+            'Retry the payment before the timer runs out.',
       AppointmentStatus.pendingPayment =>
         'Complete the payment to confirm this booking.',
       AppointmentStatus.pendingApproval =>

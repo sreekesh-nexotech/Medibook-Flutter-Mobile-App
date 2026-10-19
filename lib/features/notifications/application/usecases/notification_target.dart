@@ -56,6 +56,14 @@ class NoTarget extends NotificationTarget {
 abstract final class NotificationTargets {
   NotificationTargets._();
 
+  /// The cancelled appointment whose doctor the patient is invited to book
+  /// again — set only on an `appointment.cancelled` notification carrying
+  /// `rebook_prompt: true` and an `appointment_id` (UB-20); else null.
+  static String? rebookAppointmentId(PatientNotification notification) =>
+      notification.event == 'appointment.cancelled' && notification.rebookPrompt
+      ? notification.appointmentId
+      : null;
+
   static NotificationTarget of(PatientNotification notification) {
     final appointmentId = notification.appointmentId;
     return switch (notification.event) {

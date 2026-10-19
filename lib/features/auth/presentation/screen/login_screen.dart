@@ -36,10 +36,10 @@ import '../../application/providers/verify_request.dart';
 /// field and no country-code control"*. An [AuthChannelTabs] switch now
 /// chooses between them and the form swaps its one credential field:
 ///
+/// * **Mobile** (the default, Q50) → [AppPhoneField] (country code, digits
+///   only, real validation), which sends a one-time code and continues to
+///   `/verify` as a [VerifyPurpose.mobileLogin].
 /// * **Email** → password, submitted straight to `authProvider`.
-/// * **Mobile** → [AppPhoneField] (country code, digits only, real
-///   validation), which sends a one-time code and continues to `/verify` as a
-///   [VerifyPurpose.mobileLogin].
 ///
 /// ## CM-05: the lockout, inline
 ///
@@ -66,7 +66,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   /// Fixed: the server accepts only Indian mobiles here (§2, BL-AUTH-008).
   static const CountryCode _country = CountryCodes.india;
-  ResetChannel _channel = ResetChannel.email;
+
+  /// Q50 (client workbook, 19 Oct 2026): "Mobile number is mandatory… Mobile
+  /// OTP is the preferred login/authentication approach" — the screen opens on
+  /// Mobile (one-time code); Email + password stays one tap away.
+  ResetChannel _channel = ResetChannel.sms;
 
   late final Map<String, TextEditingController> _controllers = {
     LoginFields.email: _email,

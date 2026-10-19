@@ -1,6 +1,6 @@
 import 'package:intl/intl.dart';
 
-/// A single selectable day chip for the booking / reschedule date rows.
+/// A single selectable day chip for the booking date rows.
 class DateChip {
   const DateChip({
     required this.dow,
@@ -192,11 +192,6 @@ abstract final class AppDates {
       when.minute,
     );
   }
-
-  /// Combines a calendar [day] with a wall-clock [time] taken from another
-  /// instant. Used when a reschedule keeps the time but moves the day.
-  static DateTime combine(DateTime day, DateTime time) =>
-      DateTime(day.year, day.month, day.day, time.hour, time.minute);
 
   // ---- ISO round-trip (the wire format the API will use) ----
 

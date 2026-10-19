@@ -14,6 +14,40 @@ void main() {
     expect(failure.userMessage, 'That feature is not available right now.');
   });
 
+  // UAT DEF-002: a misconfigured or failing gateway answers 503 with
+  // `meta.provider`; the patient is told it is payment and nothing was charged.
+  test('503 PROVIDER_UNAVAILABLE from Razorpay names payment', () {
+    final failure = NetworkExceptions.toFailure(
+      const HttpStatusException(
+        statusCode: 503,
+        code: 'PROVIDER_UNAVAILABLE',
+        meta: {'provider': 'razorpay'},
+      ),
+      StackTrace.empty,
+    );
+    expect(failure, isA<ServerFailure>());
+    expect(failure.apiCode, 'PROVIDER_UNAVAILABLE');
+    expect(
+      failure.userMessage,
+      'Online payment is temporarily unavailable, so nothing was charged. '
+      'Please try again in a few minutes.',
+    );
+
+    final storage = NetworkExceptions.toFailure(
+      const HttpStatusException(
+        statusCode: 503,
+        code: 'PROVIDER_UNAVAILABLE',
+        meta: {'provider': 'storage'},
+      ),
+      StackTrace.empty,
+    );
+    expect(
+      storage.userMessage,
+      'A service we depend on is temporarily unavailable. '
+      'Please try again in a moment.',
+    );
+  });
+
   // The server's cap is a platform setting; its 413 names it in
   // `meta.max_bytes`, so the patient reads the real limit.
   test('413 FILE_TOO_LARGE names the limit the server sent', () {

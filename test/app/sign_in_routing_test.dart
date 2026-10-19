@@ -65,6 +65,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(LoginScreen), findsOneWidget);
 
+    // Q50: the screen opens on Mobile (OTP); these cases sign in by email.
+    await tester.tap(find.text('Email'));
+    await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'anita@example.com');
     await tester.enterText(fields.at(1), 'seed_password_123');
@@ -86,6 +89,9 @@ void main() {
       true,
     );
     await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    // Q50: the screen opens on Mobile (OTP); these cases sign in by email.
+    await tester.tap(find.text('Email'));
     await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'anita@example.com');
@@ -112,6 +118,21 @@ void main() {
   // BL-AUTH-008: the server takes Indian mobiles only for sign-in, so the
   // country code is +91 and cannot be changed (it used to offer +971 and
   // eight others, every one of which was then refused).
+  testWidgets('sign-in opens on Mobile + one-time code (Q50)', (tester) async {
+    usePhoneSurface(tester);
+    await HiveInit.store.write(
+      HiveBoxes.settings,
+      HiveKeys.onboardingComplete,
+      true,
+    );
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(AppCountryCodeChip), findsOneWidget);
+    expect(find.widgetWithText(GestureDetector, 'Send Code'), findsWidgets);
+    expect(find.widgetWithText(GestureDetector, 'Log In'), findsNothing);
+  });
+
   testWidgets('mobile sign-in is fixed to +91', (tester) async {
     usePhoneSurface(tester);
     await HiveInit.store.write(
@@ -249,6 +270,9 @@ void main() {
         child: const MedibookApp(),
       ),
     );
+    await tester.pumpAndSettle();
+    // Q50: the screen opens on Mobile (OTP); these cases sign in by email.
+    await tester.tap(find.text('Email'));
     await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'anita@example.com');

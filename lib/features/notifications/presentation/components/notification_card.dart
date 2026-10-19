@@ -33,6 +33,7 @@ class NotificationCard extends StatelessWidget {
     this.onOpen,
     this.onToggleRead,
     this.onRemove,
+    this.onRebook,
     this.busy = false,
   });
 
@@ -46,6 +47,10 @@ class NotificationCard extends StatelessWidget {
 
   /// Dismiss this notification. Offered on long press.
   final VoidCallback? onRemove;
+
+  /// "Rebook": offered on a hospital-cancel notification that carries
+  /// `rebook_prompt` (UB-20). Null hides the button.
+  final VoidCallback? onRebook;
 
   /// A read / unread / dismiss call is in flight for this row.
   final bool busy;
@@ -76,7 +81,11 @@ class NotificationCard extends StatelessWidget {
             onLongPress: _hasLongPressMenu && !busy
                 ? () => _showActions(context)
                 : null,
-            child: _Body(notification: notification),
+            child: _Body(
+              notification: notification,
+              onRebook: busy ? null : onRebook,
+              showRebook: onRebook != null,
+            ),
           ),
         ),
       ),
@@ -149,9 +158,15 @@ class NotificationCard extends StatelessWidget {
 /// The card's contents: kind glyph, title row with the unread dot, body, the
 /// kind badge and time.
 class _Body extends StatelessWidget {
-  const _Body({required this.notification});
+  const _Body({
+    required this.notification,
+    required this.onRebook,
+    required this.showRebook,
+  });
 
   final PatientNotification notification;
+  final VoidCallback? onRebook;
+  final bool showRebook;
 
   @override
   Widget build(BuildContext context) {
@@ -242,6 +257,21 @@ class _Body extends StatelessWidget {
             ),
           ],
         ),
+        if (showRebook) ...[
+          SizedBox(height: 14.h),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AppButton(
+              label: 'Rebook',
+              variant: AppButtonVariant.soft,
+              size: AppButtonSize.sm,
+              leadingIcon: PhIcon.calendarBlank,
+              disabled: onRebook == null,
+              semanticLabel: 'Rebook with the same doctor',
+              onPressed: onRebook,
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -27,7 +27,6 @@ enum AnalyticsEvent {
   bookingStarted('booking_started'),
   bookingConfirmed('booking_confirmed'),
   bookingCancelled('booking_cancelled'),
-  bookingRescheduled('booking_rescheduled'),
 
   // Payments
   paymentStarted('payment_started'),

@@ -10,6 +10,7 @@ import '../../../../app/theme/typography.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/utils/money.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_refresh.dart';
 import '../../../../core/widgets/route_arrival.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../../../core/widgets/app_icon_button.dart';
@@ -99,6 +100,27 @@ class _DoctorDetailScreenState extends ConsumerState<DoctorDetailScreen> {
     await ref.read(doctorDetailProvider(widget.id).future);
   }
 
+  /// Pull-to-refresh: ask the server even when a copy was read this visit, so
+  /// a fee, leave or status change shows without leaving the screen (DEF-008).
+  Future<void> _pullRefresh() async {
+    try {
+      await Future.wait<Object?>([
+        ref
+            .read(discoveryRepositoryProvider)
+            .doctor(widget.id, forceRefresh: true)
+            .last,
+        ref
+            .read(availabilityRepositoryProvider)
+            .availability(widget.id, forceRefresh: true)
+            .last,
+      ]);
+    } catch (_) {
+      // What is saved stays on screen; the screen shows its own state.
+    }
+    ref.invalidate(doctorDetailProvider(widget.id));
+    ref.invalidate(doctorAvailabilityProvider(widget.id));
+  }
+
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(doctorDetailProvider(widget.id));
@@ -124,22 +146,27 @@ class _DoctorDetailScreenState extends ConsumerState<DoctorDetailScreen> {
               children: [
                 _Header(onBack: _back),
                 Expanded(
-                  child: detail.when(
-                    loading: () => AppSkeletonList(
-                      count: 3,
-                      padding: EdgeInsets.symmetric(horizontal: 20.w),
+                  child: AppRefreshIndicator(
+                    semanticsLabel: 'Refresh doctor details',
+                    refreshOnArrival: false,
+                    onRefresh: _pullRefresh,
+                    child: detail.when(
+                      loading: () => AppSkeletonList(
+                        count: 3,
+                        padding: EdgeInsets.symmetric(horizontal: 20.w),
+                      ),
+                      error: (error, _) => AppErrorView(
+                        failure: error.asFailure(),
+                        headline: error is NotFoundFailure
+                            ? 'This doctor is not listed'
+                            : null,
+                        onRetry: _refresh,
+                        secondaryLabel: 'Go back',
+                        onSecondary: _back,
+                      ),
+                      data: (result) =>
+                          _body(result.value, timezone, hospital?.phoneE164),
                     ),
-                    error: (error, _) => AppErrorView(
-                      failure: error.asFailure(),
-                      headline: error is NotFoundFailure
-                          ? 'This doctor is not listed'
-                          : null,
-                      onRetry: _refresh,
-                      secondaryLabel: 'Go back',
-                      onSecondary: _back,
-                    ),
-                    data: (result) =>
-                        _body(result.value, timezone, hospital?.phoneE164),
                   ),
                 ),
                 _footer(detail.valueOrNull?.value, timezone),

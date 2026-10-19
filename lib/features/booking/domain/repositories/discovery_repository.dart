@@ -178,6 +178,14 @@ abstract interface class DiscoveryRepository {
     bool forceRefresh = false,
   });
 
+  /// `GET /patient/content/banners` (UB-56): the platform's campaign
+  /// banners first, then — when [city] is given — that city's hospital
+  /// banners.
+  Stream<CachedResult<Page<HospitalBanner>>> contentBanners({
+    String? city,
+    bool forceRefresh = false,
+  });
+
   /// `GET /patient/departments` (§7.5).
   Stream<CachedResult<Page<DepartmentSummary>>> departments({
     bool forceRefresh = false,

@@ -42,6 +42,7 @@ class PatientNotification {
     this.ticketId,
     this.personId,
     this.dsrId,
+    this.rebookPrompt = false,
   });
 
   final String id;
@@ -66,6 +67,11 @@ class PatientNotification {
   final String? personId;
   final String? dsrId;
 
+  /// `data.rebook_prompt` on `appointment.cancelled` (UB-20): the hospital
+  /// cancelled (a schedule change), so the app offers to book the same
+  /// doctor again.
+  final bool rebookPrompt;
+
   bool get unread => readAt == null;
   bool get read => readAt != null;
 
@@ -84,6 +90,7 @@ class PatientNotification {
       ticketId: ticketId,
       personId: personId,
       dsrId: dsrId,
+      rebookPrompt: rebookPrompt,
     );
   }
 

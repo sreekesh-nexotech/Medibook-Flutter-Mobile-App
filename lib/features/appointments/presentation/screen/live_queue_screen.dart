@@ -18,6 +18,7 @@ import '../../../../core/widgets/states/app_error_view.dart';
 import '../../../../core/widgets/states/app_loading_view.dart';
 import '../../application/providers/appointments_provider.dart';
 import '../../application/states/live_queue_state.dart';
+import '../../domain/entities/appointment.dart';
 import '../../domain/entities/queue_status.dart';
 import '../components/enter_animations.dart';
 import '../components/freshness_bar.dart';
@@ -40,6 +41,31 @@ class LiveQueueScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The queue feed carries no status for this patient's own visit: when
+    // the desk moves the queue, re-read the appointment so "Done", "No-show"
+    // or a cancellation shows here instead of a stale place in the line.
+    ref.listen<LiveQueueState>(liveQueueProvider(appointmentId), (
+      previous,
+      next,
+    ) {
+      final before = previous?.queue;
+      final after = next.queue;
+      if (after == null) return;
+      final moved =
+          before == null ||
+          before.currentTokenNo != after.currentTokenNo ||
+          before.currentToken != after.currentToken ||
+          before.queueState != after.queueState ||
+          before.sessionState != after.sessionState;
+      if (!moved) return;
+      // A plain re-read would be answered from the response cache: drop it
+      // first (also on the first reading, when the screen opens).
+      ref.read(appointmentsRepositoryProvider).invalidate().then((_) {
+        if (context.mounted) {
+          ref.invalidate(appointmentDetailProvider(appointmentId));
+        }
+      });
+    });
     final state = ref.watch(liveQueueProvider(appointmentId));
     final detail = ref.watch(appointmentDetailProvider(appointmentId));
     final appointment = detail.valueOrNull?.value.appointment;
@@ -88,7 +114,7 @@ class LiveQueueScreen extends ConsumerWidget {
                         else
                           const _DeskHeaderSkeleton(),
                         SizedBox(height: 14.h),
-                        _body(context, ref, state),
+                        _body(context, ref, state, appointment?.status),
                       ],
                     ),
                   ),
@@ -101,7 +127,23 @@ class LiveQueueScreen extends ConsumerWidget {
     );
   }
 
-  Widget _body(BuildContext context, WidgetRef ref, LiveQueueState state) {
+  Widget _body(
+    BuildContext context,
+    WidgetRef ref,
+    LiveQueueState state,
+    AppointmentStatus? status,
+  ) {
+    final finished = _FinishedCard.forStatus(status);
+    if (finished != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          finished,
+          SizedBox(height: 14.h),
+          const _HowItWorks(),
+        ],
+      );
+    }
     final queue = state.queue;
     if (state.isLoading && queue == null) {
       return const AppSkeletonCard(hasAvatar: false, lines: 4);
@@ -123,7 +165,11 @@ class LiveQueueScreen extends ConsumerWidget {
           _YourTurnCard(queue: queue, calledAt: state.calledAt),
           SizedBox(height: 14.h),
         ],
-        _QueueCard(queue: queue, isLive: state.isLive),
+        _QueueCard(
+          queue: queue,
+          isLive: state.isLive,
+          receivedAt: state.receivedAt,
+        ),
         SizedBox(height: 14.h),
         const _HowItWorks(),
       ],
@@ -271,13 +317,109 @@ class _YourTurnCard extends StatelessWidget {
   }
 }
 
+/// This patient's own visit is over: the queue numbers no longer apply.
+class _FinishedCard extends StatelessWidget {
+  const _FinishedCard({
+    required this.title,
+    required this.message,
+    required this.icon,
+    required this.color,
+    required this.background,
+  });
+
+  final String title;
+  final String message;
+  final String icon;
+  final Color color;
+  final Color background;
+
+  static _FinishedCard? forStatus(
+    AppointmentStatus? status,
+  ) => switch (status) {
+    AppointmentStatus.completed => const _FinishedCard(
+      title: 'Your consultation is complete',
+      message: 'You have been seen. This queue no longer applies to you.',
+      icon: PhIcon.checkBold,
+      color: AppColors.successText,
+      background: AppColors.successSoft,
+    ),
+    AppointmentStatus.noShow => const _FinishedCard(
+      title: 'Marked as a no-show',
+      message:
+          'The desk marked this visit as missed. Please speak to the '
+          'reception desk if you are at the hospital.',
+      icon: PhIcon.warningCircleFill,
+      color: AppColors.warningText,
+      background: AppColors.warningSoft,
+    ),
+    AppointmentStatus.cancelled => const _FinishedCard(
+      title: 'This booking was cancelled',
+      message:
+          'It is no longer in the queue. See the booking for refund details.',
+      icon: PhIcon.xCircle,
+      color: AppColors.dangerText,
+      background: AppColors.dangerSoft,
+    ),
+    _ => null,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: AppCard(
+        color: background,
+        border: Border.all(color: color, width: 1.w),
+        padding: EdgeInsets.all(16.w),
+        child: Row(
+          children: [
+            AppIcon(icon, size: 24, color: color),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppText.poppins(
+                      size: AppFontSize.title,
+                      weight: AppText.bold,
+                      color: color,
+                    ),
+                  ),
+                  SizedBox(height: 2.h),
+                  Text(
+                    message,
+                    style: AppText.poppins(
+                      size: AppFontSize.sm,
+                      color: AppColors.textBody,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// The queue reading (§10.5): now serving, your token, tokens ahead, the
 /// backend's wait estimate, and when the desk last published.
 class _QueueCard extends StatelessWidget {
-  const _QueueCard({required this.queue, required this.isLive});
+  const _QueueCard({
+    required this.queue,
+    required this.isLive,
+    this.receivedAt,
+  });
 
   final QueueStatus queue;
   final bool isLive;
+
+  /// When the app last received [queue] (see `LiveQueueState.receivedAt`).
+  final DateTime? receivedAt;
 
   @override
   Widget build(BuildContext context) {
@@ -355,7 +497,7 @@ class _QueueCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   '${isLive ? 'Live' : 'Last update'} · '
-                  'updated ${AppDates.relativeAgo(queue.updatedAt)}',
+                  'updated ${AppDates.relativeAgo(isLive ? (receivedAt ?? queue.updatedAt) : queue.updatedAt)}',
                   style: AppText.poppins(
                     size: AppFontSize.xs,
                     color: AppColors.textMuted,

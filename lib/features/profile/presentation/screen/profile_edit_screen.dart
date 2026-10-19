@@ -25,6 +25,7 @@ import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/app_unsaved_changes_guard.dart';
 import '../../../../core/widgets/toast/toast_controller.dart';
 import '../../../auth/application/providers/auth_provider.dart';
+import '../../../auth/domain/entities/user.dart';
 import '../../application/providers/profile_mutations_provider.dart';
 import '../../domain/entities/person.dart';
 import '../components/allergy_chips_field.dart';
@@ -171,29 +172,32 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
       // The account was reloaded by the controller; move the dirty baseline
       // so the user's edits are kept and compared against the live values.
       final user = ref.read(currentUserProvider);
-      if (user != null) {
-        _controller.rebase(
-          ProfileEditValues(
-            firstName: user.firstName,
-            lastName: user.lastName ?? '',
-            dateOfBirth: user.dateOfBirth,
-            gender: Gender.fromWire(user.gender),
-            bloodGroup: user.bloodGroup,
-            allergies: user.allergies,
-            marketingOptIn: user.marketingOptIn,
-          ),
-        );
-        // Untouched names may have changed: show what will be sent.
-        final merged = ref.read(profileEditControllerProvider);
-        if (_firstName.text != merged.firstName) {
-          _firstName.text = merged.firstName;
-        }
-        if (_lastName.text != merged.lastName) {
-          _lastName.text = merged.lastName;
-        }
-      }
+      if (user != null) _rebaseOn(user);
     }
     toast.show(failure.userMessage);
+  }
+
+  /// Re-seeds the form from a reloaded account, keeping the patient's edits.
+  void _rebaseOn(User user) {
+    _controller.rebase(
+      ProfileEditValues(
+        firstName: user.firstName,
+        lastName: user.lastName ?? '',
+        dateOfBirth: user.dateOfBirth,
+        gender: Gender.fromWire(user.gender),
+        bloodGroup: user.bloodGroup,
+        allergies: user.allergies,
+        marketingOptIn: user.marketingOptIn,
+      ),
+    );
+    // Untouched names may have changed: show what will be sent.
+    final merged = ref.read(profileEditControllerProvider);
+    if (_firstName.text != merged.firstName) {
+      _firstName.text = merged.firstName;
+    }
+    if (_lastName.text != merged.lastName) {
+      _lastName.text = merged.lastName;
+    }
   }
 
   Future<void> _editAlternatePhone(String? current) async {
@@ -225,6 +229,16 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Opened before the account finished loading (a cold start straight
+    // into this screen), the form showed date of birth, gender and blood
+    // group as "not set" and the offers switch OFF — and saving any other
+    // edit then withdrew the marketing consent (UAT PRV-001). Follow the
+    // account as it loads; the patient's own edits are kept.
+    ref.listen<User?>(currentUserProvider, (previous, next) {
+      if (next == null || identical(previous, next)) return;
+      if (ref.read(profileEditControllerProvider).isSaving) return;
+      _rebaseOn(next);
+    });
     final form = ref.watch(profileEditControllerProvider);
     final save = ref.watch(profileSaveControllerProvider);
     final user = ref.watch(currentUserProvider);
@@ -503,11 +517,18 @@ class _ReadOnlyRow extends StatelessWidget {
             borderRadius: AppRadii.md,
             border: Border.all(color: AppColors.border, width: 1.w),
           ),
-          child: SelectableText(
-            value,
-            style: AppText.inter(
-              size: AppFontSize.body,
-              color: AppColors.textMuted,
+          // Its own node: a bare SelectableText took over the whole card's
+          // semantics, hiding the headings and the offers switch from
+          // TalkBack (UAT UX-009).
+          child: Semantics(
+            container: true,
+            label: label,
+            child: SelectableText(
+              value,
+              style: AppText.inter(
+                size: AppFontSize.body,
+                color: AppColors.textMuted,
+              ),
             ),
           ),
         ),
@@ -656,9 +677,10 @@ class _MarketingRow extends StatelessWidget {
             ),
           ),
           SizedBox(width: AppSpacing.x3.w),
-          Semantics(
-            label: 'Receive offers and health camp updates',
-            child: AppSwitch(value: value, onChanged: onChanged),
+          AppSwitch(
+            value: value,
+            onChanged: onChanged,
+            semanticLabel: 'Receive offers and health camp updates',
           ),
         ],
       ),

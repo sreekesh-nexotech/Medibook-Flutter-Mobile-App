@@ -126,6 +126,10 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
   late DateTime _visibleMonth;
   DateTime? _selected;
 
+  /// The year list is open in place of the month grid (DEF-003): stepping a
+  /// year at a time took 58 taps to reach a parent's 1958 birth year.
+  bool _choosingYear = false;
+
   /// Monday-first, matching the Indian convention the design follows.
   static const List<String> _weekdayLabels = [
     'Mon',
@@ -170,12 +174,28 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
   /// Moves the visible month, clamped to the selectable range — a year step
   /// from the range's edge lands on its first or last month.
   void _shiftMonth(int months) {
+    final target = _clampMonth(
+      DateTime(_visibleMonth.year, _visibleMonth.month + months),
+    );
+    setState(() => _visibleMonth = target);
+  }
+
+  /// [month] pulled inside the selectable range.
+  DateTime _clampMonth(DateTime month) {
     final first = DateTime(_firstDay.year, _firstDay.month);
     final last = DateTime(_lastDay.year, _lastDay.month);
-    var target = DateTime(_visibleMonth.year, _visibleMonth.month + months);
-    if (target.isBefore(first)) target = first;
-    if (target.isAfter(last)) target = last;
-    setState(() => _visibleMonth = target);
+    if (month.isBefore(first)) return first;
+    if (month.isAfter(last)) return last;
+    return month;
+  }
+
+  /// Jumps straight to [year], keeping the visible month where the range
+  /// allows, and closes the year list.
+  void _pickYear(int year) {
+    setState(() {
+      _visibleMonth = _clampMonth(DateTime(year, _visibleMonth.month));
+      _choosingYear = false;
+    });
   }
 
   DayAvailability _availabilityOf(DateTime day) {
@@ -211,13 +231,43 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
                 onPressed: _canGoBack ? () => _shiftMonth(-12) : null,
               ),
               SizedBox(width: AppSpacing.x3.w),
-              ExcludeSemantics(
-                child: Text(
-                  '${_visibleMonth.year}',
-                  style: AppText.poppins(
-                    size: AppFontSize.base,
-                    weight: AppText.semibold,
-                    color: AppColors.textMuted,
+              Semantics(
+                button: true,
+                label: _choosingYear
+                    ? 'Close the year list'
+                    : 'Choose a year, currently ${_visibleMonth.year}',
+                child: ExcludeSemantics(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.pill.r),
+                    onTap: () => setState(() => _choosingYear = !_choosingYear),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.x3.w,
+                        vertical: AppSpacing.x2.h,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_visibleMonth.year}',
+                            style: AppText.poppins(
+                              size: AppFontSize.base,
+                              weight: AppText.semibold,
+                              color: _choosingYear
+                                  ? AppColors.brand
+                                  : AppColors.textMuted,
+                            ),
+                          ),
+                          Icon(
+                            _choosingYear
+                                ? Icons.arrow_drop_up
+                                : Icons.arrow_drop_down,
+                            size: 20.r,
+                            color: AppColors.textMuted,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -236,98 +286,152 @@ class _AppMonthCalendarState extends State<AppMonthCalendar> {
           SizedBox(height: AppSpacing.x1.h),
         ],
 
-        // ---- Month navigation ----
-        Row(
-          children: [
-            AppIconButton(
-              icon: MedIcon.back,
-              size: 36,
-              semanticLabel: 'Previous month',
-              onPressed: _canGoBack ? () => _shiftMonth(-1) : null,
-            ),
-            Expanded(
-              child: Semantics(
-                header: true,
-                child: Text(
-                  AppDates.monthYear(_visibleMonth),
-                  textAlign: TextAlign.center,
-                  style: AppText.poppins(
-                    size: AppFontSize.title,
-                    weight: AppText.semibold,
-                    color: AppColors.textStrong,
-                  ),
-                ),
-              ),
-            ),
-            // The back glyph mirrored — the icon set has no forward arrow.
-            Transform.flip(
-              flipX: true,
-              child: AppIconButton(
+        if (_choosingYear)
+          _yearGrid()
+        else ...[
+          // ---- Month navigation ----
+          Row(
+            children: [
+              AppIconButton(
                 icon: MedIcon.back,
                 size: 36,
-                semanticLabel: 'Next month',
-                onPressed: _canGoForward ? () => _shiftMonth(1) : null,
+                semanticLabel: 'Previous month',
+                onPressed: _canGoBack ? () => _shiftMonth(-1) : null,
               ),
-            ),
-          ],
-        ),
-        SizedBox(height: AppSpacing.x3.h),
-
-        // ---- Weekday headers ----
-        Row(
-          children: [
-            for (final label in _weekdayLabels)
               Expanded(
-                child: ExcludeSemantics(
+                child: Semantics(
+                  header: true,
                   child: Text(
-                    label,
+                    AppDates.monthYear(_visibleMonth),
                     textAlign: TextAlign.center,
                     style: AppText.poppins(
-                      size: AppFontSize.xs,
-                      weight: AppText.medium,
-                      color: AppColors.textMuted,
+                      size: AppFontSize.title,
+                      weight: AppText.semibold,
+                      color: AppColors.textStrong,
                     ),
                   ),
                 ),
               ),
-          ],
-        ),
-        SizedBox(height: AppSpacing.x2.h),
-
-        // ---- Day grid ----
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            mainAxisSpacing: 4.h,
-            crossAxisSpacing: 4.w,
-            // Slightly taller than square, so the 44px tap target fits with
-            // the availability dot beneath the numeral.
-            childAspectRatio: 0.92,
+              // The back glyph mirrored — the icon set has no forward arrow.
+              Transform.flip(
+                flipX: true,
+                child: AppIconButton(
+                  icon: MedIcon.back,
+                  size: 36,
+                  semanticLabel: 'Next month',
+                  onPressed: _canGoForward ? () => _shiftMonth(1) : null,
+                ),
+              ),
+            ],
           ),
-          itemCount: leadingBlanks + days.length,
-          itemBuilder: (context, index) {
-            if (index < leadingBlanks) return const SizedBox.shrink();
-            final day = days[index - leadingBlanks];
-            return _DayCell(
-              day: day,
-              availability: _availabilityOf(day),
-              showAvailability: widget.availability != null,
-              isSelected:
-                  _selected != null && AppDates.isSameDay(_selected!, day),
-              isToday: AppDates.isToday(day),
-              onTap: () => _select(day),
-            );
-          },
-        ),
+          SizedBox(height: AppSpacing.x3.h),
 
-        if (widget.showLegend && widget.availability != null) ...[
-          SizedBox(height: AppSpacing.x4.h),
-          const _CalendarLegend(),
+          // ---- Weekday headers ----
+          Row(
+            children: [
+              for (final label in _weekdayLabels)
+                Expanded(
+                  child: ExcludeSemantics(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: AppText.poppins(
+                        size: AppFontSize.xs,
+                        weight: AppText.medium,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: AppSpacing.x2.h),
+
+          // ---- Day grid ----
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 4.h,
+              crossAxisSpacing: 4.w,
+              // Slightly taller than square, so the 44px tap target fits with
+              // the availability dot beneath the numeral.
+              childAspectRatio: 0.92,
+            ),
+            itemCount: leadingBlanks + days.length,
+            itemBuilder: (context, index) {
+              if (index < leadingBlanks) return const SizedBox.shrink();
+              final day = days[index - leadingBlanks];
+              return _DayCell(
+                day: day,
+                availability: _availabilityOf(day),
+                showAvailability: widget.availability != null,
+                isSelected:
+                    _selected != null && AppDates.isSameDay(_selected!, day),
+                isToday: AppDates.isToday(day),
+                onTap: () => _select(day),
+              );
+            },
+          ),
+
+          if (widget.showLegend && widget.availability != null) ...[
+            SizedBox(height: AppSpacing.x4.h),
+            const _CalendarLegend(),
+          ],
         ],
       ],
+    );
+  }
+
+  /// Every selectable year, newest first, four to a row (DEF-003).
+  Widget _yearGrid() {
+    final years = [for (var y = _lastDay.year; y >= _firstDay.year; y--) y];
+    return SizedBox(
+      height: 300.h,
+      child: GridView.builder(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.x2.h),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          mainAxisSpacing: 8.h,
+          crossAxisSpacing: 8.w,
+          childAspectRatio: 2.1,
+        ),
+        itemCount: years.length,
+        itemBuilder: (context, index) {
+          final year = years[index];
+          final isCurrent = year == _visibleMonth.year;
+          return Semantics(
+            button: true,
+            selected: isCurrent,
+            label: '$year',
+            child: ExcludeSemantics(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.pill.r),
+                onTap: () => _pickYear(year),
+                child: Container(
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isCurrent ? AppColors.brand : AppColors.surfaceTint,
+                    borderRadius: BorderRadius.circular(AppRadius.pill.r),
+                  ),
+                  child: Text(
+                    '$year',
+                    style: AppText.poppins(
+                      size: AppFontSize.sm,
+                      weight: AppText.medium,
+                      color: isCurrent
+                          ? AppColors.textOnBrand
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

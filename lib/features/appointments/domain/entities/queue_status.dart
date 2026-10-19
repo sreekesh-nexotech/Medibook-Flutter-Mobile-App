@@ -80,8 +80,11 @@ class QueueStatus {
       sessionState == SessionState.closed ||
       sessionState == SessionState.cancelled;
 
-  /// True when this patient's token is the one being seen.
+  /// True when this patient's token is the one being seen. The server keeps
+  /// the last token number after "Done", so a token label must be showing too
+  /// (UAT 16 Oct: a finished patient still read "You are being seen").
   bool get isBeingSeen =>
+      currentToken != null &&
       currentTokenNo != null &&
       yourTokenNo != null &&
       currentTokenNo == yourTokenNo;

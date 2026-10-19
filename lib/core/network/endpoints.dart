@@ -99,6 +99,11 @@ abstract final class Endpoints {
   static String hospital(String id) => '$_p/hospitals/${_seg(id)}';
   static String hospitalBanners(String id) =>
       '$_p/hospitals/${_seg(id)}/banners';
+
+  /// Platform campaign banners, plus a city's / hospital's when filtered
+  /// (UB-56, DEF-047). Not in the contract file yet — see
+  /// `docs/FLUTTER_INTEGRATION_GAPS_ROUND_3.md`.
+  static const String contentBanners = '$_p/content/banners';
   static String hospitalDepartments(String id) =>
       '$_p/hospitals/${_seg(id)}/departments';
   static String hospitalDoctors(String id) =>

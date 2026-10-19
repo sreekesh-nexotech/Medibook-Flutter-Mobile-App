@@ -202,6 +202,13 @@ class CachedFetcher {
       );
       yield result;
     } catch (error, stackTrace) {
+      final failure = NetworkExceptions.toFailure(error, stackTrace);
+      if (failure is NotFoundFailure) {
+        // The server says the resource is gone (a deactivated doctor, a
+        // removed hospital): the saved copy must not keep it alive (DEF-011).
+        _dropEntry(key);
+        Error.throwWithStackTrace(failure, stackTrace);
+      }
       if (cached != null && cachedValue is T) {
         // Scenario 2/5 error path: keep the cached data, hide the indicator.
         AppLogger.warning(

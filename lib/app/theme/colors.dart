@@ -88,9 +88,9 @@ abstract final class AppColors {
   static const Color successSoft = Color(0xFFBFE6CC); // "Completed" pill bg
   static const Color successText = Color(0xFF1B6B3A);
   static const Color danger = Color(0xFFE14C4C);
-  static const Color dangerSoft = Color(
-    0xFFF3C2C2,
-  ); // "Pending"/"Cancelled" pill bg
+  // "Pending"/"Cancelled" pill bg. Was F3C2C2: dangerText on it measured
+  // 3.85:1, under WCAG AA 4.5:1 for the pill's small text (UAT UX-010).
+  static const Color dangerSoft = Color(0xFFFADADA); // 4.66:1 with dangerText
   static const Color dangerText = Color(0xFFB23535);
   static const Color warning = Color(0xFFF5A623); // rating stars
   static const Color warningSoft = Color(0xFFFCE6BE);

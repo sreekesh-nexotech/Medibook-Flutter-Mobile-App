@@ -301,6 +301,29 @@ void main() {
       expect(quote.lines[1].taxLabel, 'GST 18%');
       expect(quote.hasValidCoupon, isFalse);
       expect(quote.couponError, 'COUPON_INVALID');
+      expect(quote.couponErrorMessage, isNull);
+    });
+
+    test('keeps the server\'s sentence for a refused coupon (UB-27)', () {
+      final quote = BookingMappers.feeQuote({
+        'consultation_fee_paise': 90000,
+        'total_paise': 92400,
+        'doctor_id': 'doc1',
+        'hospital_id': 'h1',
+        'coupon': {
+          'valid': false,
+          'reason': 'COUPON_NOT_APPLICABLE',
+          'message': "This coupon cannot be used for this doctor's department.",
+          'meta': {'reason': 'department'},
+        },
+        'lines': const [],
+        'quoted_for_date': '2026-10-20',
+      });
+      expect(quote.couponError, 'COUPON_NOT_APPLICABLE');
+      expect(
+        quote.couponErrorMessage,
+        "This coupon cannot be used for this doctor's department.",
+      );
     });
   });
 

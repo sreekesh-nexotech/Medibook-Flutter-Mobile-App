@@ -206,6 +206,9 @@ abstract final class NotificationMappers {
       ticketId: data['ticket_id'] as String?,
       personId: data['person_id'] as String?,
       dsrId: data['dsr_id'] as String?,
+      // A JSON boolean in the inbox; push data carries it as "true" (UB-20).
+      rebookPrompt:
+          data['rebook_prompt'] == true || data['rebook_prompt'] == 'true',
     );
   }
 

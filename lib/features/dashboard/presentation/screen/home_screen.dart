@@ -230,7 +230,8 @@ String _payNote(Appointment appointment) {
 
 /// Where a banner tap goes: the banner's own `cta_target` when the server
 /// sends one — a Medibook link opens that screen, any other https link opens
-/// in the browser — else the banner's hospital, as before.
+/// in the browser — else the banner's hospital, as before. A platform
+/// campaign banner with no target and no hospital stays where it is.
 Future<void> _openBanner(BuildContext context, HospitalBanner banner) async {
   final target = banner.ctaTarget?.trim() ?? '';
   if (target.isNotEmpty) {
@@ -244,8 +245,9 @@ Future<void> _openBanner(BuildContext context, HospitalBanner banner) async {
       return;
     }
   }
-  if (context.mounted) {
-    await context.push(AppRoutes.hospitalPath(banner.hospitalId));
+  final hospitalId = banner.hospitalId;
+  if (hospitalId != null && context.mounted) {
+    await context.push(AppRoutes.hospitalPath(hospitalId));
   }
 }
 

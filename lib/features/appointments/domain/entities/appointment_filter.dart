@@ -11,11 +11,13 @@ import 'appointment.dart';
 enum AppointmentTab {
   upcoming('Upcoming'),
   completed('Completed'),
-  cancelled('Canceled');
+  // Spelled like the status pills ("Cancelled") — the design's American
+  // "Canceled" made the tab and its own rows disagree (UAT 16 Oct, DEF-017).
+  cancelled('Cancelled');
 
   const AppointmentTab(this.label);
 
-  /// The pill label, as the design spells it.
+  /// The pill label.
   final String label;
 
   static AppointmentTab fromLabel(String label) {

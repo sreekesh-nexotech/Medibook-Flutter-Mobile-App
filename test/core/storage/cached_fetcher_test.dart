@@ -300,6 +300,30 @@ void main() {
     },
   );
 
+  test(
+    'a 404 on revalidation drops the saved copy and reports not found',
+    () async {
+      // A doctor the hospital deactivated must not stay bookable from the
+      // phone's cache (UAT 16 Oct, DEF-011).
+      api.enqueue(const ApiResponse(statusCode: 200, data: {'v': 'saved'}));
+      await fetcher.get(request, decode);
+
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      fetcher.markArrival();
+      api.enqueueError(
+        const HttpStatusException(statusCode: 404, message: 'not found'),
+      );
+
+      final seen = <CachedResult<Map<String, Object?>>>[];
+      await expectLater(
+        fetcher.fetch(request, decode).forEach(seen.add),
+        throwsA(isA<NotFoundFailure>()),
+      );
+      expect(seen.single.value['v'], 'saved');
+      expect(store.read(HiveBoxes.httpCache, _keyFor(request)), isNull);
+    },
+  );
+
   test('cache keys include the account scope (tenant isolation)', () async {
     var account = 'user-a';
     final scoped = CachedFetcher(

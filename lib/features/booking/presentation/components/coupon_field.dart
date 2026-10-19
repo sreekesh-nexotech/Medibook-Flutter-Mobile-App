@@ -30,6 +30,7 @@ class CouponField extends StatefulWidget {
     required this.onApply,
     required this.onRemove,
     this.rejectionCode,
+    this.rejectionMessage,
     this.enabled = true,
     this.checking = false,
   });
@@ -48,6 +49,10 @@ class CouponField extends StatefulWidget {
   /// The backend's `coupon.reason` for a refused code, or null.
   final String? rejectionCode;
 
+  /// The backend's `coupon.message` for a refused code — shown as-is when
+  /// present, since only the server knows which rule refused it (UB-27).
+  final String? rejectionMessage;
+
   /// False while a booking is in flight — the price must not change under it.
   final bool enabled;
 
@@ -56,6 +61,27 @@ class CouponField extends StatefulWidget {
 
   @override
   State<CouponField> createState() => _CouponFieldState();
+
+  /// What the field says under a refused code: the server's own
+  /// `coupon.message` when it sent one (UB-27), else house wording for the
+  /// reason (§8.3).
+  @visibleForTesting
+  static String? reasonText(String? code, [String? serverMessage]) {
+    if (code == null) return null;
+    final message = serverMessage?.trim();
+    if (message != null && message.isNotEmpty) return message;
+    return switch (code) {
+      ApiErrorCodes.couponInvalid => 'That coupon code is not valid.',
+      ApiErrorCodes.couponExpired => 'That coupon has expired.',
+      ApiErrorCodes.couponNotStarted => 'That coupon is not valid yet.',
+      ApiErrorCodes.couponNotApplicable =>
+        'That coupon cannot be used for this booking.',
+      ApiErrorCodes.couponMinOrder =>
+        'The order is below the minimum for that coupon.',
+      ApiErrorCodes.couponUsageCap => 'That coupon has been used up.',
+      _ => 'That coupon could not be applied.',
+    };
+  }
 }
 
 class _CouponFieldState extends State<CouponField> {
@@ -77,17 +103,6 @@ class _CouponFieldState extends State<CouponField> {
     _controller.clear();
     widget.onRemove();
   }
-
-  /// House wording for the four coupon rejections (§8.3).
-  static String? _reasonText(String? code) => switch (code) {
-    null => null,
-    ApiErrorCodes.couponInvalid => 'That coupon code is not valid.',
-    ApiErrorCodes.couponExpired => 'That coupon has expired.',
-    ApiErrorCodes.couponMinOrder =>
-      'The order is below the minimum for that coupon.',
-    ApiErrorCodes.couponUsageCap => 'That coupon has been used up.',
-    _ => 'That coupon could not be applied.',
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +135,10 @@ class _CouponFieldState extends State<CouponField> {
               child: AppTextField(
                 controller: _controller,
                 hintText: 'Enter code',
-                errorText: _reasonText(widget.rejectionCode),
+                errorText: CouponField.reasonText(
+                  widget.rejectionCode,
+                  widget.rejectionMessage,
+                ),
                 enabled: widget.enabled && !widget.checking,
                 semanticLabel: 'Coupon code',
                 textCapitalization: TextCapitalization.characters,

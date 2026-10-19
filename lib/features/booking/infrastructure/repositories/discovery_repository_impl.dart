@@ -107,6 +107,16 @@ class DiscoveryRepositoryImpl
   );
 
   @override
+  Stream<CachedResult<Page<HospitalBanner>>> contentBanners({
+    String? city,
+    bool forceRefresh = false,
+  }) => _page(
+    DiscoveryApi.contentBanners(city: city),
+    BookingMappers.feedBanner,
+    forceRefresh: forceRefresh,
+  );
+
+  @override
   Stream<CachedResult<Page<DepartmentSummary>>> departments({
     bool forceRefresh = false,
   }) => _page(

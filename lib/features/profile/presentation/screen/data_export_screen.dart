@@ -116,7 +116,7 @@ class DataExportScreen extends ConsumerWidget {
                                 padding: EdgeInsets.only(
                                   bottom: AppSpacing.x3.h,
                                 ),
-                                child: _RequestCard(
+                                child: DataExportRequestCard(
                                   request: request,
                                   isLinking: actions.linkingId == request.id,
                                   disabled: actions.isBusy,
@@ -235,7 +235,7 @@ class _IntroCard extends StatelessWidget {
           SizedBox(height: AppSpacing.x4.h),
           if (pending != null)
             Text(
-              'Request ${pending.requestNo} is ${pending.status.label.toLowerCase()}. '
+              'Request ${pending.requestNo} is ${pending.label.toLowerCase()}. '
               'You can ask again once it is finished.',
               style: AppText.poppins(
                 size: AppFontSize.xs,
@@ -258,9 +258,11 @@ class _IntroCard extends StatelessWidget {
   }
 }
 
-/// One request: its number, where it stands, and Download once it is ready.
-class _RequestCard extends StatelessWidget {
-  const _RequestCard({
+/// One request: its number, where it stands (with the rejection reason when
+/// compliance gave one), and Download once it is ready.
+class DataExportRequestCard extends StatelessWidget {
+  const DataExportRequestCard({
+    super.key,
     required this.request,
     required this.isLinking,
     required this.disabled,
@@ -274,7 +276,7 @@ class _RequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final completed = request.completedAt;
+    final reason = request.shownRejectionReason;
     return AppCard(
       padding: EdgeInsets.all(AppSpacing.x4.w),
       child: Column(
@@ -293,23 +295,30 @@ class _RequestCard extends StatelessWidget {
                 ),
               ),
               SizedBox(width: AppSpacing.x2.w),
-              AppBadge(label: request.status.label, tone: _tone(request)),
+              AppBadge(label: request.label, tone: _tone(request)),
             ],
           ),
           SizedBox(height: AppSpacing.x2.h),
           Text(
-            [
-              'Requested '
-                  '${AppDates.dayMonthYear(request.requestedAt.toLocal())}',
-              if (completed != null)
-                'ready ${AppDates.dayMonthYear(completed.toLocal())}',
-            ].join(' · '),
+            datesLine(request),
             style: AppText.poppins(
               size: AppFontSize.xs,
               height: 1.5,
               color: AppColors.textMuted,
             ),
           ),
+          if (reason != null) ...[
+            SizedBox(height: AppSpacing.x2.h),
+            // What compliance typed when rejecting it (UB-55).
+            Text(
+              'Reason: $reason',
+              style: AppText.poppins(
+                size: AppFontSize.xs,
+                height: 1.5,
+                color: AppColors.textBody,
+              ),
+            ),
+          ],
           if (request.isReady) ...[
             SizedBox(height: AppSpacing.x3.h),
             Align(
@@ -330,6 +339,23 @@ class _RequestCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// "Requested 16 Oct 2026 · rejected 18 Oct 2026": the request date,
+  /// then what happened and when — only "ready" for a file that exists
+  /// (UB-55; `completed_at` alone is set for rejected requests too).
+  @visibleForTesting
+  static String datesLine(DataExportRequest request) {
+    String day(DateTime at) => AppDates.dayMonthYear(at.toLocal());
+    final ready = request.readyOn;
+    final rejected = request.rejectedOn;
+    final closed = request.closedOn;
+    return [
+      'Requested ${day(request.requestedAt)}',
+      if (ready != null) 'ready ${day(ready)}',
+      if (rejected != null) 'rejected ${day(rejected)}',
+      if (closed != null) 'closed ${day(closed)}',
+    ].join(' · ');
   }
 
   static AppBadgeTone _tone(DataExportRequest request) =>

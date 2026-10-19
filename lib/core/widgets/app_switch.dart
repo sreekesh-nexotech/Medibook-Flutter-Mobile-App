@@ -8,45 +8,63 @@ import '../../app/theme/theme.dart';
 /// knob slides `left 3 → 23` over 180ms with a subtle shadow. Stateless — the
 /// slide animates as [value] flips on rebuild.
 class AppSwitch extends StatelessWidget {
-  const AppSwitch({super.key, required this.value, this.onChanged});
+  const AppSwitch({
+    super.key,
+    required this.value,
+    this.onChanged,
+    this.semanticLabel,
+  });
 
   final bool value;
   final ValueChanged<bool>? onChanged;
+
+  /// What a screen reader says for the switch — set it here, not on an outer
+  /// [Semantics], so the label and the on/off state are one node.
+  final String? semanticLabel;
 
   static const Duration _slide = Duration(milliseconds: 180);
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onChanged == null ? null : () => onChanged!(!value),
-      child: AnimatedContainer(
-        duration: _slide,
-        curve: Curves.easeInOut,
-        width: 46.w,
-        height: 26.h,
-        decoration: BoxDecoration(
-          color: value ? AppColors.brand : AppColors.grey200,
-          borderRadius: AppRadii.pill,
-        ),
-        child: Stack(
-          children: [
-            AnimatedPositioned(
-              duration: _slide,
-              curve: Curves.easeInOut,
-              left: value ? 23.w : 3.w,
-              top: 3.h,
-              child: Container(
-                width: 20.w,
-                height: 20.w,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  shape: BoxShape.circle,
-                  boxShadow: AppShadows.xs,
+    // Announced as a switch with its on/off state (UAT UX-009): the custom
+    // track has no built-in semantics, so screen readers could not tell it
+    // was a toggle or whether it was on.
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      toggled: value,
+      enabled: onChanged != null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onChanged == null ? null : () => onChanged!(!value),
+        child: AnimatedContainer(
+          duration: _slide,
+          curve: Curves.easeInOut,
+          width: 46.w,
+          height: 26.h,
+          decoration: BoxDecoration(
+            color: value ? AppColors.brand : AppColors.grey200,
+            borderRadius: AppRadii.pill,
+          ),
+          child: Stack(
+            children: [
+              AnimatedPositioned(
+                duration: _slide,
+                curve: Curves.easeInOut,
+                left: value ? 23.w : 3.w,
+                top: 3.h,
+                child: Container(
+                  width: 20.w,
+                  height: 20.w,
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    shape: BoxShape.circle,
+                    boxShadow: AppShadows.xs,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

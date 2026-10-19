@@ -76,23 +76,46 @@ final homeHospitalsProvider =
           .hospitals(homeHospitalsQueryFor(at, scope));
     });
 
-/// The promo strip: the visible hospitals' banners, in hospital order then
-/// `sort_order`. There is no platform-wide banner list (§18), so this is
-/// one `GET …/banners` per previewed hospital, each cached.
+/// The promo strip: the platform's campaign banners first
+/// (`GET /patient/content/banners`, UB-56 — with the browse city, so that
+/// city's hospital banners come too), then the previewed hospitals' own
+/// banners (§7.4, one cached `GET …/banners` each), in hospital order then
+/// `sort_order`. A banner that both lists carry is shown once.
+///
+/// Each source fails on its own: a feed error leaves the hospital banners,
+/// and one hospital's error leaves the rest. With nothing from either the
+/// strip is empty and Home hides it, as before.
 final homeBannersProvider = FutureProvider.autoDispose<List<HospitalBanner>>((
   ref,
 ) async {
-  final hospitals = await ref.watch(homeHospitalsProvider.future);
   final repository = ref.watch(discoveryRepositoryProvider);
+  final city = ref.watch(locationScopeProvider)?.city;
   final banners = <HospitalBanner>[];
+  final seen = <String>{};
+  void addAll(Iterable<HospitalBanner> rows) {
+    for (final banner in rows) {
+      if (seen.add(banner.id)) banners.add(banner);
+    }
+  }
+
+  try {
+    final feed = await repository.contentBanners(city: city).last;
+    // The server orders the feed (platform by `sort_order`, then hospitals).
+    addAll(feed.value.results);
+  } catch (_) {
+    // The campaign feed failing must not empty the strip.
+  }
+
+  final hospitals = await ref.watch(homeHospitalsProvider.future);
   for (final hospital in hospitals.value.results.take(
     HomeLimits.bannerHospitals,
   )) {
     try {
       final page = await repository.hospitalBanners(hospital.id).last;
-      final rows = page.value.results.toList()
-        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-      banners.addAll(rows);
+      addAll(
+        page.value.results.toList()
+          ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder)),
+      );
     } catch (_) {
       // One hospital's banners failing must not empty the strip.
     }

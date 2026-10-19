@@ -20,7 +20,8 @@ import '../../../booking/presentation/components/file_image.dart';
 /// patient's finger is on it (and for one interval after), when Home is
 /// covered by another screen, and when there is only one card.
 ///
-/// The banners are the visible hospitals' (§7.4): title, body and, when the
+/// The banners are the platform's campaigns (`GET /patient/content/banners`)
+/// and the visible hospitals' (§7.4): title, body and, when the
 /// banner has one, its image (`image_file_id`) in the right `46%` under a
 /// navy overlay. Copy sits in the left `62%`. The design's gradient is
 /// alternated per card since the backend carries no colour.
@@ -34,7 +35,7 @@ class PromoBannerCard extends StatefulWidget {
 
   final List<HospitalBanner> banners;
 
-  /// Opens the banner's hospital.
+  /// Follows the banner's `cta_target`, else opens its hospital.
   final ValueChanged<HospitalBanner> onTap;
 
   /// How long each card stays before the next one slides in.
