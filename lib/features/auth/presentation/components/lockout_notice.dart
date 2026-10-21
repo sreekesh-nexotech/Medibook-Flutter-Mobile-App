@@ -5,6 +5,8 @@ import '../../../../app/config/constants.dart';
 import '../../../../app/theme/colors.dart';
 import '../../../../app/theme/theme.dart';
 import '../../../../app/theme/typography.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/network/network_exceptions.dart';
 import '../../../../core/widgets/app_countdown.dart';
 import '../../../../core/widgets/app_icon.dart';
 import '../../application/states/auth_state.dart';
@@ -49,6 +51,16 @@ class LockoutNotice extends StatelessWidget {
   /// Every branch below needs at least one failed attempt, so this is the one
   /// question worth asking.
   static bool showsFor(AuthState state) => state.failedAttempts > 0;
+
+  /// Whether this notice already says what [failure] would: a rejected
+  /// email-or-number and password while the attempt count is showing. The
+  /// screen then shows no second error box saying the same thing (C-A6).
+  static bool coversFailure(AuthState state, Failure? failure) =>
+      showsFor(state) &&
+      failure?.apiCode == ApiErrorCodes.authInvalidCredentials;
+
+  static const String _noMatch =
+      'That email or number and password do not match';
 
   /// The cooldown in words ("1 hour", "15 minutes"), for the copy that
   /// warns about it.
@@ -104,7 +116,7 @@ class LockoutNotice extends StatelessWidget {
       return _NoticeBox(
         tone: _NoticeTone.danger,
         iconName: PhIcon.xCircle,
-        headline: 'One attempt left',
+        headline: '$_noMatch — one attempt left',
         body: Text(
           'The next wrong password pauses sign-in for $_cooldownLabel. '
           'Use "Forgot password?" if you are not sure.',
@@ -118,10 +130,10 @@ class LockoutNotice extends StatelessWidget {
       return _NoticeBox(
         tone: _NoticeTone.warning,
         iconName: PhIcon.xCircle,
-        // Deliberately not "that did not match" — the rejected credential is
-        // already reported in its own error box, and saying it twice is
-        // louder, not clearer. This box's job is the budget.
-        headline: 'Sign-in attempts',
+        // The one box for a wrong password: what went wrong and the budget
+        // left. The screen drops its own error box for this case
+        // ([coversFailure]) — saying it twice is louder, not clearer.
+        headline: _noMatch,
         body: Text(
           '$remaining attempts left before sign-in is paused for '
           '$_cooldownLabel.',

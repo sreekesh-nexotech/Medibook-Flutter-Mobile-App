@@ -45,14 +45,25 @@ class LoginFormController extends AuthFormController {
   };
 
   /// The email tab accepts an email **or** an E.164 number, because the
-  /// backend's `identifier` does (§4.5).
+  /// backend's `identifier` does (§4.5) — and a number typed without its
+  /// code, which the screen shows beside the country chip (see
+  /// [isNationalNumber]) and sends with the code in front.
   static String? _identifierError(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return 'Enter your email or mobile number';
     if (Validators.isEmail(trimmed)) return null;
+    if (isNationalNumber(trimmed)) return Validators.phone(trimmed);
     if (Validators.phoneE164(trimmed) == null) return null;
     return 'Enter a valid email address or mobile number';
   }
+
+  /// Digits only, and more than three of them: the email tab treats the entry
+  /// as a mobile number from here on — the screen shows the country chip
+  /// beside it and signs in with the code in front.
+  static bool isNationalNumber(String value) =>
+      _nationalNumber.hasMatch(value.trim());
+
+  static final RegExp _nationalNumber = RegExp(r'^\d{4,}$');
 
   /// Validate the email tab. True when it may be submitted.
   bool validateEmailForm({required String email, required String password}) =>

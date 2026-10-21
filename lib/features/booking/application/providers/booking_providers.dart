@@ -12,6 +12,7 @@ import '../../domain/entities/token_card.dart';
 import '../../domain/repositories/availability_repository.dart';
 import '../../domain/repositories/booking_repository.dart';
 import '../states/booking_submit_state.dart';
+import 'booking_draft_provider.dart';
 import 'discovery_providers.dart';
 
 /// The booking repository. Callers depend on the abstract type, so a test can
@@ -225,18 +226,25 @@ class BookingSubmitController extends StateNotifier<BookingSubmitState> {
   /// Forget the attempt so a new booking can start (the flow was reset).
   void reset() => state = const BookingSubmitState();
 
-  void clearFailure() =>
-      state = state.copyWith(failure: () => null, slotUnavailable: false);
+  void clearFailure() {
+    if (state.failure == null && !state.slotUnavailable) return;
+    state = state.copyWith(failure: () => null, slotUnavailable: false);
+  }
 }
 
 /// The booking attempt for the current flow. `autoDispose`: it lives exactly
 /// as long as the booking and payment screens that watch it.
+///
+/// A refusal belongs to the choices it was made for: once the patient changes
+/// the doctor, date and time, person or coupon, the old message (e.g. "you
+/// already have a booking in this session") is cleared instead of following
+/// them to the confirm step of a booking it no longer applies to.
 final bookingSubmitProvider =
     StateNotifierProvider.autoDispose<
       BookingSubmitController,
       BookingSubmitState
-    >(
-      (ref) => BookingSubmitController(
+    >((ref) {
+      final controller = BookingSubmitController(
         ref: ref,
         repository: ref.watch(bookingRepositoryProvider),
         availability: ref.watch(availabilityRepositoryProvider),
@@ -247,5 +255,14 @@ final bookingSubmitProvider =
               idempotencyKey: IdempotencyKeys.mint(),
               reason: 'Changed before payment',
             ),
-      ),
-    );
+      );
+      ref.listen(
+        bookingDraftProvider.select(
+          (d) => (d.doctorId, d.slotId, d.personId, d.couponCode),
+        ),
+        (previous, next) {
+          if (previous != next) controller.clearFailure();
+        },
+      );
+      return controller;
+    });

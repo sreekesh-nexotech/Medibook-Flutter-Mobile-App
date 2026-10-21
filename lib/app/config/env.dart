@@ -43,7 +43,7 @@ enum AppEnvironment {
 /// ```
 ///
 /// Defaults are the dev values, so `flutter run` with no defines still works
-/// against the integration server. Call `EnvLoader.validate()` during
+/// against the app-dev server. Call `EnvLoader.validate()` during
 /// bootstrap to fail fast on a release build that was handed nonsense (see
 /// `app/bootstrap/env_loader.dart`).
 abstract final class Env {
@@ -75,11 +75,11 @@ abstract final class Env {
   static AppEnvironment get current => AppEnvironment.fromKey(environmentKey);
 
   /// API origin, no trailing slash and **no** `/api/v1` — `ApiClient` adds
-  /// the prefix. The default is the integration server this app is being
-  /// wired against.
+  /// the prefix. The default is the app-dev server, the same backend the
+  /// hosted hospital web app (hospital-dev) uses.
   static const String apiBaseUrl = String.fromEnvironment(
     apiBaseUrlDefine,
-    defaultValue: 'https://62.171.151.149:8443',
+    defaultValue: 'https://app-dev.medibook.co.in',
   );
 
   /// Whether demo affordances are reachable (prefilled credentials, the
@@ -94,12 +94,12 @@ abstract final class Env {
 
   /// Accept a self-signed TLS certificate from [apiBaseUrl].
   ///
-  /// The integration server presents one. Defaults to `true` so `flutter run`
-  /// works; `EnvLoader` refuses a **production** build with this on, and it is
-  /// never consulted for a host that presents a valid chain.
+  /// Off by default: app-dev presents a valid chain. Pass `true` only for a
+  /// server with a self-signed certificate; `EnvLoader` refuses a
+  /// **production** build with this on.
   static const bool allowBadCertificate = bool.fromEnvironment(
     allowBadCertDefine,
-    defaultValue: true,
+    defaultValue: false,
   );
 
   /// Home promo-banner auto-rotation. Independent of [demoMode] because it is

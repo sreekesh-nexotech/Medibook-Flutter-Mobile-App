@@ -142,7 +142,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
     final signedIn = await _form.signInWithPassword(
-      identifier: _email.text,
+      identifier: _emailIdentifier,
       password: _password.text,
     );
     if (!signedIn || !mounted) return;
@@ -235,10 +235,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ref.read(authProvider.notifier).clearLockoutIfExpired(),
                   ),
                   if (LockoutNotice.showsFor(auth)) SizedBox(height: 16.h),
-                  // A locked-out form already explains itself in the notice
-                  // above; repeating the same sentence as a second error box
-                  // would just be louder, not clearer.
-                  if (failure != null && !isLockedOut) ...[
+                  // A locked-out form, or a wrong password with attempts left,
+                  // already explains itself in the notice above; repeating
+                  // it as a second error box would be louder, not clearer.
+                  if (failure != null &&
+                      !isLockedOut &&
+                      !LockoutNotice.coversFailure(auth, failure)) ...[
                     AppInlineError(failure: failure),
                     SizedBox(height: 16.h),
                   ],
@@ -339,29 +341,73 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+  /// The email tab's entry is a mobile number typed without its code: the
+  /// country chip shows beside it and the code is sent in front.
+  bool get _emailIsNumber => LoginFormController.isNationalNumber(_email.text);
+
+  /// The email tab's entry as the server takes it: an email, or a number in
+  /// E.164 (the chip's code in front of a number typed without one).
+  String get _emailIdentifier => _emailIsNumber
+      ? '${_country.dialCode}${_email.text.trim()}'
+      : _email.text;
+
   /// What is typed in the account field, in either tab.
   String get _identifier => _isMobile
       ? '${_country.dialCode}${Validators.digitsOf(_phone.text)}'
-      : _email.text;
+      : _emailIdentifier;
 
   List<Widget> _emailFields(
     AuthFormState form, {
     required bool locked,
     bool passwordLocked = false,
   }) {
+    const label = 'Email or Mobile';
+    final isNumber = _emailIsNumber;
     return [
-      AuthTextField(
-        field: LoginFields.email,
-        label: 'Email or Mobile',
-        controller: _email,
-        state: form,
-        focus: _focus,
-        onChanged: _onFieldChanged,
-        hintText: 'you@example.com or +91…',
-        keyboardType: TextInputType.emailAddress,
-        autofillHints: const [AutofillHints.email, AutofillHints.username],
-        enabled: !locked,
-        onEditingComplete: () => _focus.requestFocus(LoginFields.password),
+      // Laid out like the mobile tab's field — the label above, the country
+      // chip beside the box — so the chip lines up with the box. The chip
+      // appears once the entry is a number (more than three digits); the
+      // field keeps its key so focus and the keyboard survive the change.
+      Text(
+        label,
+        style: AppText.poppins(
+          size: AppFontSize.base,
+          weight: AppText.medium,
+          color: AppColors.textStrong,
+        ),
+      ),
+      SizedBox(height: 8.h),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isNumber) ...[
+            AppCountryCodeChip(value: _country, enabled: !locked),
+            SizedBox(width: 10.w),
+          ],
+          Expanded(
+            key: const ValueKey('login-identifier'),
+            child: AuthTextField(
+              field: LoginFields.email,
+              label: null,
+              semanticLabel: isNumber
+                  ? '$label, ${_country.dialCode} ${_country.name}'
+                  : label,
+              controller: _email,
+              state: form,
+              focus: _focus,
+              onChanged: _onFieldChanged,
+              hintText: 'you@example.com or mobile number',
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [
+                AutofillHints.email,
+                AutofillHints.username,
+              ],
+              enabled: !locked,
+              onEditingComplete: () =>
+                  _focus.requestFocus(LoginFields.password),
+            ),
+          ),
+        ],
       ),
       SizedBox(height: 16.h),
       AuthPasswordField(

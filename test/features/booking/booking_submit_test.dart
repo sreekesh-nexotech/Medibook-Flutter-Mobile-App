@@ -1,8 +1,11 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medibook/core/error/failure.dart';
 import 'package:medibook/core/network/network_exceptions.dart';
 import 'package:medibook/core/storage/cache/cached_fetcher.dart';
+import 'package:medibook/features/booking/application/providers/booking_draft_provider.dart';
 import 'package:medibook/features/booking/application/providers/booking_providers.dart';
+import 'package:medibook/features/booking/application/providers/discovery_providers.dart';
 import 'package:medibook/features/booking/domain/entities/availability.dart';
 import 'package:medibook/features/booking/domain/entities/booked_appointment.dart';
 import 'package:medibook/features/booking/domain/entities/booking_result.dart';
@@ -88,6 +91,62 @@ void main() {
       expect(availability.invalidations, 1);
     },
   );
+
+  // UAT 20 Oct (same doctor, same session): the refusal stayed on screen after
+  // the patient went back and picked another day and time.
+  group('a refusal is cleared once the choices change', () {
+    late ProviderContainer container;
+
+    Slot slot(String id) => Slot(
+      id: id,
+      sessionId: 's-$id',
+      startsAt: DateTime.utc(2026, 10, 23, 4),
+      endsAt: DateTime.utc(2026, 10, 23, 4, 10),
+      state: SlotState.available,
+    );
+
+    setUp(() {
+      container = ProviderContainer(
+        overrides: [
+          bookingRepositoryProvider.overrideWithValue(repository),
+          availabilityRepositoryProvider.overrideWithValue(availability),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Keep both autoDispose providers alive for the test.
+      container.listen(bookingSubmitProvider, (_, _) {});
+      container.listen(bookingDraftProvider, (_, _) {});
+    });
+
+    test('picking another time clears the old message', () async {
+      container
+          .read(bookingDraftProvider.notifier)
+          .pickSlot(slot('morning-1'), date: '2026-10-23');
+      repository.failWith = const ConflictFailure(
+        apiCode: 'BOOKING_DAILY_LIMIT',
+        userMessage: 'You already have a booking in this session.',
+      );
+      await container.read(bookingSubmitProvider.notifier).book(request);
+      expect(container.read(bookingSubmitProvider).failure, isNotNull);
+
+      container
+          .read(bookingDraftProvider.notifier)
+          .pickSlot(slot('evening-1'), date: '2026-10-23');
+      expect(container.read(bookingSubmitProvider).failure, isNull);
+    });
+
+    test('the message stays while nothing changed', () async {
+      container
+          .read(bookingDraftProvider.notifier)
+          .pickSlot(slot('morning-1'), date: '2026-10-23');
+      repository.failWith = const ConflictFailure(
+        apiCode: 'BOOKING_DAILY_LIMIT',
+      );
+      await container.read(bookingSubmitProvider.notifier).book(request);
+      container.read(bookingDraftProvider.notifier).setNotes('Back pain');
+      expect(container.read(bookingSubmitProvider).failure, isNotNull);
+    });
+  });
 
   test('a second tap while in flight is refused', () async {
     repository.delay = const Duration(milliseconds: 50);

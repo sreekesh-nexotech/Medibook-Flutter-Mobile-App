@@ -39,6 +39,7 @@ class AuthTextField extends StatelessWidget {
     super.key,
     required this.field,
     required this.label,
+    this.semanticLabel,
     required this.controller,
     required this.state,
     required this.focus,
@@ -59,7 +60,12 @@ class AuthTextField extends StatelessWidget {
   /// The key this field is validated and keyed by.
   final String field;
 
-  final String label;
+  /// Null when the screen draws the label itself (a field with a control
+  /// beside it, like the sign-in identifier and its country chip).
+  final String? label;
+
+  /// What a screen reader announces; defaults to [label].
+  final String? semanticLabel;
   final TextEditingController controller;
 
   /// The owning form's state — the source of this field's error text.
@@ -93,6 +99,7 @@ class AuthTextField extends StatelessWidget {
     final isLast = onEditingComplete == null;
     return AppTextField(
       label: label,
+      semanticLabel: semanticLabel,
       controller: controller,
       focusNode: focus.node(field),
       errorText: state.errorOf(field),

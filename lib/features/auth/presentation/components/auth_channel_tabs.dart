@@ -6,8 +6,9 @@ import '../../../../app/theme/typography.dart';
 import '../../../../core/widgets/app_segmented_tabs.dart';
 import '../../application/providers/auth_flow_draft.dart';
 
-/// The Email / Mobile switch at the top of the sign-in (CM-04) and reset
-/// (CM-06) forms.
+/// The Mobile / Email switch at the top of the sign-in (CM-04) and reset
+/// (CM-06) forms. Mobile comes first because it is the preferred sign-in and
+/// the pill both forms open on (Q50).
 ///
 /// The audit found *"login takes an email address. There is no mobile-number
 /// field and no country-code control"*, and the same for the reset flow. A
@@ -38,8 +39,8 @@ class AuthChannelTabs extends StatelessWidget {
 
   final bool enabled;
 
-  static const String _emailLabel = 'Email';
   static const String _mobileLabel = 'Mobile';
+  static const String _emailLabel = 'Email';
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +59,7 @@ class AuthChannelTabs extends StatelessWidget {
           SizedBox(height: 8.h),
         ],
         AppSegmentedTabs(
-          tabs: const [_emailLabel, _mobileLabel],
+          tabs: const [_mobileLabel, _emailLabel],
           active: value == ResetChannel.sms ? _mobileLabel : _emailLabel,
           onChanged: enabled
               ? (label) => onChanged(
